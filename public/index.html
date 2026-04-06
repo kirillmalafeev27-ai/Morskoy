@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Morskoy Dungeon</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Main Menu -->
+  <div id="menu-screen" class="screen active">
+    <div class="menu-container">
+      <h1 id="game-title">MORSKOY DUNGEON</h1>
+      <p class="subtitle" id="game-subtitle">Грамматика немецкого в тёмных коридорах</p>
+
+      <div class="menu-options">
+        <div class="option-group">
+          <label>Уровень немецкого:</label>
+          <select id="lang-level">
+            <option value="A1">A1 — Начальный</option>
+            <option value="A2" selected>A2 — Элементарный</option>
+            <option value="B1">B1 — Средний</option>
+            <option value="B2">B2 — Выше среднего</option>
+          </select>
+        </div>
+
+        <div class="option-group">
+          <label>Монстры:</label>
+          <select id="monster-count">
+            <option value="1">Один монстр</option>
+            <option value="2">Два монстра</option>
+            <option value="3">Три монстра</option>
+          </select>
+        </div>
+
+        <div class="option-group">
+          <label>Атмосфера:</label>
+          <div class="toggle-container">
+            <span class="toggle-label">Спокойная</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="creepy-mode" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Жуткая</span>
+          </div>
+        </div>
+      </div>
+
+      <button id="start-btn" class="btn-primary">НАЧАТЬ ИГРУ</button>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="game-screen" class="screen">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div id="treasure-counter">
+        <span class="hud-icon">💎</span>
+        <span id="treasure-count">0</span> / 3
+      </div>
+      <div id="status-effects"></div>
+    </div>
+
+    <!-- Direction controls (shown after answering) -->
+    <div id="direction-panel" class="hidden">
+      <p class="direction-prompt">Выберите направление:</p>
+      <div class="direction-buttons">
+        <button class="dir-btn" data-dir="up">↑</button>
+        <button class="dir-btn" data-dir="left">←</button>
+        <button class="dir-btn" data-dir="down">↓</button>
+        <button class="dir-btn" data-dir="right">→</button>
+      </div>
+    </div>
+
+    <!-- Topic Selection Panel -->
+    <div id="topic-panel">
+      <h3>Выберите тему:</h3>
+      <div class="topic-buttons">
+        <button class="topic-btn" data-topic="wortstellung">
+          <span class="topic-name">Wortstellung</span>
+          <span class="topic-bonus">→ 1 ход</span>
+          <span class="topic-diff">★</span>
+        </button>
+        <button class="topic-btn" data-topic="artikel">
+          <span class="topic-name">Artikel & Deklination</span>
+          <span class="topic-bonus">→ Расш. зрение</span>
+          <span class="topic-diff">★★</span>
+        </button>
+        <button class="topic-btn" data-topic="konjugation">
+          <span class="topic-name">Konjugation</span>
+          <span class="topic-bonus">→ 2 хода</span>
+          <span class="topic-diff">★★★</span>
+        </button>
+        <button class="topic-btn" data-topic="nebensaetze">
+          <span class="topic-name">Nebensätze</span>
+          <span class="topic-bonus">→ Приманка</span>
+          <span class="topic-diff">★★★★</span>
+        </button>
+        <button class="topic-btn" data-topic="konjunktiv">
+          <span class="topic-name">Konjunktiv II</span>
+          <span class="topic-bonus">→ Показать монстра</span>
+          <span class="topic-diff">★★★★★</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Question Panel -->
+    <div id="question-panel" class="hidden">
+      <div class="question-header">
+        <span id="question-topic-label"></span>
+        <span id="question-timer"></span>
+      </div>
+      <p id="question-text"></p>
+      <div id="question-options"></div>
+      <div id="question-input-area" class="hidden">
+        <input type="text" id="question-input" placeholder="Deine Antwort..." autocomplete="off">
+        <button id="submit-answer" class="btn-primary">Antworten</button>
+      </div>
+      <div id="question-feedback" class="hidden"></div>
+    </div>
+  </div>
+
+  <!-- Win Screen -->
+  <div id="win-screen" class="screen">
+    <div class="end-container">
+      <h1>ПОБЕДА!</h1>
+      <p>Вы собрали все сокровища!</p>
+      <p id="win-stats"></p>
+      <button id="win-restart" class="btn-primary">Играть снова</button>
+    </div>
+  </div>
+
+  <!-- Lose Screen -->
+  <div id="lose-screen" class="screen">
+    <div class="end-container">
+      <h1 id="lose-title">ПОРАЖЕНИЕ</h1>
+      <p id="lose-message">Монстр вас настиг...</p>
+      <p id="lose-stats"></p>
+      <button id="lose-restart" class="btn-primary">Попробовать снова</button>
+    </div>
+  </div>
+
+  <!-- Three.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- Game modules -->
+  <script src="js/maze.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/questions.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/monster.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
