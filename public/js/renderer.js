@@ -21,8 +21,8 @@ class DungeonRenderer {
     this.scene.background = new THREE.Color(isCreepy ? 0x050505 : 0x0a1628);
     this.scene.fog = new THREE.Fog(isCreepy ? 0x050505 : 0x0a1628, 8, 35);
 
-    // Set initial camera position (will be updated in loop)
-    this.camera.position.set(2, 18, 12);
+    // Set initial camera position
+    this.camera.position.set(2, 20, 14);
     this.camera.lookAt(2, 0, 2);
 
     // Materials
@@ -36,11 +36,20 @@ class DungeonRenderer {
     this.baitMesh = null;
     this.playerMesh = null;
     this.playerLight = null;
-    this.revealLight = null;
+    this.playerFillLight = null;
 
     // Visibility
     this.visibleRadius = 2;
     this.baseVisibleRadius = 2;
+
+    // Camera shake
+    this.shakeIntensity = 0;
+    this.shakeDuration = 0;
+    this.shakeTimer = 0;
+
+    // Death animation state
+    this.deathAnimating = false;
+    this.deathTarget = null;
 
     // Animation
     this.clock = new THREE.Clock();
@@ -82,14 +91,6 @@ class DungeonRenderer {
       metalness: 0.8,
     });
 
-    this.monsterMaterial = new THREE.MeshStandardMaterial({
-      color: this.isCreepy ? 0x3a0000 : 0x8b0000,
-      emissive: this.isCreepy ? 0x330000 : 0x440000,
-      emissiveIntensity: 0.3,
-      roughness: 0.6,
-      metalness: 0.2,
-    });
-
     this.baitMaterial = new THREE.MeshStandardMaterial({
       color: 0x00ff88,
       emissive: 0x00aa44,
@@ -107,7 +108,6 @@ class DungeonRenderer {
   }
 
   buildMaze(maze) {
-    // Clear previous
     this._clearScene();
 
     const T = this.TILE_SIZE;
@@ -120,7 +120,6 @@ class DungeonRenderer {
         const posZ = y * T;
 
         if (maze.grid[y][x] === 0) {
-          // Wall
           const wall = new THREE.Mesh(wallGeo, this.wallMaterial);
           wall.position.set(posX, this.WALL_HEIGHT / 2, posZ);
           wall.castShadow = true;
@@ -128,7 +127,6 @@ class DungeonRenderer {
           this.scene.add(wall);
           this.wallMeshes.push(wall);
         } else {
-          // Floor
           const floor = new THREE.Mesh(floorGeo, this.floorMaterial);
           floor.rotation.x = -Math.PI / 2;
           floor.position.set(posX, 0, posZ);
@@ -139,9 +137,6 @@ class DungeonRenderer {
       }
     }
 
-    // No ceiling - camera looks from above
-
-    // Ambient light - very dim to keep fog of war feel but enough to see walls nearby
     const ambient = new THREE.AmbientLight(
       this.isCreepy ? 0x221111 : 0x182838,
       this.isCreepy ? 0.15 : 0.3
@@ -157,7 +152,6 @@ class DungeonRenderer {
     this.playerMesh.castShadow = true;
     this.scene.add(this.playerMesh);
 
-    // Player torch light
     this.playerLight = new THREE.PointLight(
       this.isCreepy ? 0xff8833 : 0x99bbff,
       this.isCreepy ? 2.5 : 2.0,
@@ -170,13 +164,7 @@ class DungeonRenderer {
     this.playerLight.shadow.mapSize.height = 512;
     this.scene.add(this.playerLight);
 
-    // Additional fill light from above the player
-    this.playerFillLight = new THREE.PointLight(
-      0xffffff,
-      0.5,
-      this.visibleRadius * T * 4,
-      2
-    );
+    this.playerFillLight = new THREE.PointLight(0xffffff, 0.5, this.visibleRadius * T * 4, 2);
     this.playerFillLight.position.set(x * T, 8, y * T);
     this.scene.add(this.playerFillLight);
   }
@@ -186,7 +174,6 @@ class DungeonRenderer {
     const T = this.TILE_SIZE;
     const targetX = x * T;
     const targetZ = y * T;
-    // Smooth interpolation
     this.playerMesh.position.x += (targetX - this.playerMesh.position.x) * 0.2;
     this.playerMesh.position.z += (targetZ - this.playerMesh.position.z) * 0.2;
     this.playerLight.position.x = this.playerMesh.position.x;
@@ -198,8 +185,11 @@ class DungeonRenderer {
       this.playerFillLight.distance = this.visibleRadius * T * 4;
     }
 
-    // Update light range based on visibility
     this.playerLight.distance = this.visibleRadius * T * 3;
+
+    // Gentle player bob
+    const time = this.clock.getElapsedTime();
+    this.playerMesh.position.y = T * 0.3 + Math.sin(time * 2) * 0.05;
   }
 
   updateCamera(playerX, playerY, instant) {
@@ -207,7 +197,6 @@ class DungeonRenderer {
     const targetX = playerX * T;
     const targetZ = playerY * T;
 
-    // Angled top-down view
     const camTargetX = targetX;
     const camTargetY = 20;
     const camTargetZ = targetZ + 12;
@@ -217,59 +206,184 @@ class DungeonRenderer {
     this.camera.position.y += (camTargetY - this.camera.position.y) * lerp;
     this.camera.position.z += (camTargetZ - this.camera.position.z) * lerp;
 
-    this.camera.lookAt(
-      this.playerMesh.position.x,
-      0,
-      this.playerMesh.position.z
-    );
-  }
+    // Camera shake
+    if (this.shakeTimer > 0) {
+      const progress = this.shakeTimer / this.shakeDuration;
+      const intensity = this.shakeIntensity * progress;
+      this.camera.position.x += (Math.random() - 0.5) * intensity;
+      this.camera.position.y += (Math.random() - 0.5) * intensity * 0.5;
+      this.camera.position.z += (Math.random() - 0.5) * intensity;
+      this.shakeTimer -= 16; // approx per frame
+    }
 
-  createMonster(x, y, index) {
-    const T = this.TILE_SIZE;
-
-    const group = new THREE.Group();
-
-    // Body - distorted sphere
-    const bodyGeo = new THREE.SphereGeometry(T * 0.4, 8, 6);
-    // Distort vertices for ugly look
-    const positions = bodyGeo.attributes.position;
-    for (let i = 0; i < positions.count; i++) {
-      const px = positions.getX(i);
-      const py = positions.getY(i);
-      const pz = positions.getZ(i);
-      positions.setXYZ(i,
-        px + (Math.random() - 0.5) * 0.15,
-        py + (Math.random() - 0.5) * 0.15,
-        pz + (Math.random() - 0.5) * 0.15
+    if (this.playerMesh) {
+      this.camera.lookAt(
+        this.playerMesh.position.x,
+        0,
+        this.playerMesh.position.z
       );
     }
-    bodyGeo.computeVertexNormals();
+  }
 
-    const body = new THREE.Mesh(bodyGeo, this.monsterMaterial);
-    body.position.y = T * 0.4;
-    body.castShadow = true;
-    group.add(body);
+  shakeCamera(intensity, duration) {
+    this.shakeIntensity = intensity;
+    this.shakeDuration = duration;
+    this.shakeTimer = duration;
+  }
 
-    // Eyes - two glowing red dots
-    const eyeGeo = new THREE.SphereGeometry(T * 0.06, 8, 8);
+  // ===== DETAILED MONSTER =====
+  createMonster(x, y, index) {
+    const T = this.TILE_SIZE;
+    const group = new THREE.Group();
+
+    const monsterColor = this.isCreepy ? 0x3a0000 : 0x8b0000;
+    const monsterEmissive = this.isCreepy ? 0x330000 : 0x440000;
+
+    // === TORSO (main body) - lumpy distorted mass ===
+    const torsoGeo = new THREE.SphereGeometry(T * 0.35, 12, 10);
+    this._distortGeometry(torsoGeo, 0.12);
+    const torsoMat = new THREE.MeshStandardMaterial({
+      color: monsterColor, emissive: monsterEmissive,
+      emissiveIntensity: 0.3, roughness: 0.7, metalness: 0.15,
+    });
+    const torso = new THREE.Mesh(torsoGeo, torsoMat);
+    torso.position.y = T * 0.45;
+    torso.scale.set(1, 1.2, 0.9);
+    torso.castShadow = true;
+    group.add(torso);
+
+    // === HEAD - smaller lumpy sphere ===
+    const headGeo = new THREE.SphereGeometry(T * 0.2, 10, 8);
+    this._distortGeometry(headGeo, 0.08);
+    const headMat = torsoMat.clone();
+    headMat.color.setHex(this.isCreepy ? 0x4a0a0a : 0x9b1010);
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.set(0, T * 0.8, -T * 0.1);
+    head.castShadow = true;
+    group.add(head);
+
+    // === EYES - asymmetric glowing ===
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
-    eye1.position.set(-T * 0.12, T * 0.5, -T * 0.3);
+    const eye1Geo = new THREE.SphereGeometry(T * 0.055, 8, 8);
+    const eye1 = new THREE.Mesh(eye1Geo, eyeMat);
+    eye1.position.set(-T * 0.1, T * 0.85, -T * 0.28);
     group.add(eye1);
-    const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
-    eye2.position.set(T * 0.12, T * 0.5, -T * 0.3);
+
+    const eye2Geo = new THREE.SphereGeometry(T * 0.04, 8, 8);
+    const eye2 = new THREE.Mesh(eye2Geo, eyeMat);
+    eye2.position.set(T * 0.08, T * 0.82, -T * 0.27);
     group.add(eye2);
 
+    // Third eye (creepy only)
+    if (this.isCreepy) {
+      const eye3Geo = new THREE.SphereGeometry(T * 0.03, 6, 6);
+      const eye3Mat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+      const eye3 = new THREE.Mesh(eye3Geo, eye3Mat);
+      eye3.position.set(T * 0.02, T * 0.92, -T * 0.25);
+      group.add(eye3);
+    }
+
+    // === MOUTH - jagged opening ===
+    const mouthGeo = new THREE.TorusGeometry(T * 0.08, T * 0.025, 6, 8);
+    this._distortGeometry(mouthGeo, 0.03);
+    const mouthMat = new THREE.MeshBasicMaterial({ color: 0x220000 });
+    const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+    mouth.position.set(0, T * 0.72, -T * 0.28);
+    mouth.rotation.x = Math.PI * 0.1;
+    group.add(mouth);
+
+    // === ARMS/TENTACLES - twisted cylinders ===
+    for (let side = -1; side <= 1; side += 2) {
+      const armGroup = new THREE.Group();
+
+      // Upper arm
+      const armGeo = new THREE.CylinderGeometry(T * 0.06, T * 0.04, T * 0.4, 6);
+      this._distortGeometry(armGeo, 0.03);
+      const armMesh = new THREE.Mesh(armGeo, torsoMat);
+      armMesh.rotation.z = side * 0.8;
+      armMesh.position.y = -T * 0.1;
+      armGroup.add(armMesh);
+
+      // Forearm/claw
+      const clawGeo = new THREE.ConeGeometry(T * 0.05, T * 0.2, 5);
+      this._distortGeometry(clawGeo, 0.02);
+      const clawMat = torsoMat.clone();
+      clawMat.color.setHex(0x1a0000);
+      const claw = new THREE.Mesh(clawGeo, clawMat);
+      claw.position.set(side * T * 0.15, -T * 0.25, 0);
+      claw.rotation.z = side * 0.5;
+      armGroup.add(claw);
+
+      armGroup.position.set(side * T * 0.3, T * 0.5, 0);
+      group.add(armGroup);
+    }
+
+    // === LEGS - stumpy, uneven ===
+    for (let side = -1; side <= 1; side += 2) {
+      const legGeo = new THREE.CylinderGeometry(T * 0.08, T * 0.06, T * 0.25, 6);
+      this._distortGeometry(legGeo, 0.02);
+      const leg = new THREE.Mesh(legGeo, torsoMat);
+      leg.position.set(side * T * 0.15, T * 0.12, T * 0.05);
+      group.add(leg);
+    }
+
+    // === SPIKES on back ===
+    for (let i = 0; i < 4; i++) {
+      const spikeGeo = new THREE.ConeGeometry(T * 0.04, T * 0.15 + Math.random() * T * 0.1, 4);
+      const spikeMat = torsoMat.clone();
+      spikeMat.color.setHex(0x2a0505);
+      const spike = new THREE.Mesh(spikeGeo, spikeMat);
+      spike.position.set(
+        (Math.random() - 0.5) * T * 0.2,
+        T * 0.7 + Math.random() * T * 0.15,
+        T * 0.15 + Math.random() * T * 0.1
+      );
+      spike.rotation.x = -0.3 + Math.random() * 0.2;
+      spike.rotation.z = (Math.random() - 0.5) * 0.4;
+      group.add(spike);
+    }
+
+    // === DROOL/slime particles (small spheres underneath) ===
+    for (let i = 0; i < 3; i++) {
+      const dripGeo = new THREE.SphereGeometry(T * 0.015, 4, 4);
+      const dripMat = new THREE.MeshBasicMaterial({ color: 0x44ff44, transparent: true, opacity: 0.6 });
+      const drip = new THREE.Mesh(dripGeo, dripMat);
+      drip.position.set(
+        (Math.random() - 0.5) * T * 0.15,
+        T * 0.65,
+        -T * 0.3
+      );
+      drip.userData.dripOffset = Math.random() * Math.PI * 2;
+      group.add(drip);
+    }
+
     // Monster glow
-    const monsterLight = new THREE.PointLight(0xff0000, 0.3, T * 3, 2);
+    const monsterLight = new THREE.PointLight(
+      this.isCreepy ? 0xff0000 : 0xff3300,
+      this.isCreepy ? 0.4 : 0.25,
+      T * 4, 2
+    );
     monsterLight.position.set(0, T * 0.5, 0);
     group.add(monsterLight);
 
     group.position.set(x * T, 0, y * T);
-    group.visible = false; // hidden by default (fog of war)
+    group.visible = false;
+    group.userData.monsterIndex = index;
     this.scene.add(group);
     this.monsterMeshes.push(group);
     return group;
+  }
+
+  _distortGeometry(geo, amount) {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      pos.setXYZ(i,
+        pos.getX(i) + (Math.random() - 0.5) * amount,
+        pos.getY(i) + (Math.random() - 0.5) * amount,
+        pos.getZ(i) + (Math.random() - 0.5) * amount
+      );
+    }
+    geo.computeVertexNormals();
   }
 
   updateMonster(index, x, y, isVisible, isRevealed) {
@@ -282,22 +396,104 @@ class DungeonRenderer {
     mesh.position.x += (targetX - mesh.position.x) * 0.15;
     mesh.position.z += (targetZ - mesh.position.z) * 0.15;
 
-    // Wobble animation
     const time = this.clock.getElapsedTime();
-    mesh.children[0].rotation.y = Math.sin(time * 2 + index) * 0.3;
-    mesh.children[0].position.y = this.TILE_SIZE * 0.4 + Math.sin(time * 3 + index) * 0.1;
+
+    // Body sway
+    if (mesh.children[0]) {
+      mesh.children[0].rotation.y = Math.sin(time * 1.5 + index) * 0.2;
+      mesh.children[0].rotation.z = Math.sin(time * 1.2 + index * 0.5) * 0.1;
+    }
+
+    // Head bob
+    if (mesh.children[1]) {
+      mesh.children[1].position.y = T * 0.8 + Math.sin(time * 2.5 + index) * 0.06;
+      mesh.children[1].rotation.x = Math.sin(time * 1.8) * 0.15;
+    }
+
+    // Arm swing (children 6 and 7 are arm groups)
+    const armIndices = this.isCreepy ? [7, 8] : [6, 7];
+    armIndices.forEach((ai, side) => {
+      if (mesh.children[ai]) {
+        mesh.children[ai].rotation.x = Math.sin(time * 2 + side * Math.PI) * 0.3;
+        mesh.children[ai].rotation.z = Math.sin(time * 1.5 + side * Math.PI) * 0.15;
+      }
+    });
+
+    // Drool drip animation
+    mesh.children.forEach(child => {
+      if (child.userData && child.userData.dripOffset !== undefined) {
+        const dripPhase = (time * 2 + child.userData.dripOffset) % (Math.PI * 2);
+        child.position.y = T * 0.65 - Math.abs(Math.sin(dripPhase)) * T * 0.1;
+        child.material.opacity = 0.3 + Math.abs(Math.sin(dripPhase)) * 0.4;
+      }
+    });
 
     mesh.visible = isVisible || isRevealed;
 
-    // If revealed but not in visible range, make semi-transparent
+    // Semi-transparent if revealed but not in visible range
     if (isRevealed && !isVisible) {
-      mesh.children[0].material = mesh.children[0].material.clone();
-      mesh.children[0].material.transparent = true;
-      mesh.children[0].material.opacity = 0.5 + Math.sin(time * 4) * 0.2;
-    } else if (mesh.children[0].material.transparent) {
-      mesh.children[0].material.transparent = false;
-      mesh.children[0].material.opacity = 1;
+      mesh.traverse(child => {
+        if (child.isMesh && child.material && !child.material.isMeshBasicMaterial) {
+          if (!child.userData._origMat) {
+            child.userData._origMat = child.material;
+            child.material = child.material.clone();
+          }
+          child.material.transparent = true;
+          child.material.opacity = 0.4 + Math.sin(time * 4) * 0.2;
+        }
+      });
+    } else if (isVisible) {
+      mesh.traverse(child => {
+        if (child.isMesh && child.userData._origMat) {
+          child.material = child.userData._origMat;
+          delete child.userData._origMat;
+        }
+      });
     }
+  }
+
+  // ===== DEATH ANIMATION =====
+  playDeathAnimation(monsterX, monsterY, callback) {
+    this.deathAnimating = true;
+
+    // Red overlay
+    const overlay = document.getElementById('death-overlay');
+    overlay.classList.add('active');
+
+    // Camera shake
+    this.shakeCamera(2.0, 1500);
+
+    // Zoom camera toward monster
+    const T = this.TILE_SIZE;
+    this.deathTarget = { x: monsterX * T, z: monsterY * T };
+
+    // Dim player light
+    if (this.playerLight) {
+      const flickerInterval = setInterval(() => {
+        if (this.playerLight) {
+          this.playerLight.intensity = Math.random() * 1.5;
+        }
+      }, 80);
+
+      setTimeout(() => {
+        clearInterval(flickerInterval);
+        if (this.playerLight) this.playerLight.intensity = 0;
+        this.deathAnimating = false;
+        if (callback) callback();
+      }, 1800);
+    } else {
+      setTimeout(() => {
+        this.deathAnimating = false;
+        if (callback) callback();
+      }, 1800);
+    }
+  }
+
+  resetDeathAnimation() {
+    this.deathAnimating = false;
+    this.deathTarget = null;
+    const overlay = document.getElementById('death-overlay');
+    if (overlay) overlay.classList.remove('active');
   }
 
   createTreasure(x, y, index) {
@@ -334,7 +530,6 @@ class DungeonRenderer {
 
     mesh.visible = isVisible;
 
-    // Spin and float
     const time = this.clock.getElapsedTime();
     mesh.children[0].rotation.y = time * 2 + index;
     mesh.children[0].position.y = this.TILE_SIZE * 0.3 + Math.sin(time * 2 + index * 2) * 0.15;
@@ -367,7 +562,6 @@ class DungeonRenderer {
     this.visibleRadius = this.baseVisibleRadius;
   }
 
-  // Check if a cell is within player's visible radius
   isInVisibleRange(playerX, playerY, cellX, cellY) {
     const dx = Math.abs(playerX - cellX);
     const dy = Math.abs(playerY - cellY);
@@ -427,5 +621,6 @@ class DungeonRenderer {
     this.stopLoop();
     this._clearScene();
     this.renderer.dispose();
+    this.resetDeathAnimation();
   }
 }

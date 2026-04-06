@@ -1,20 +1,93 @@
 // Main game state and logic
+// Includes: level progression, leaderboard, death animation, touch/swipe
+
+// Level progression config
+const LEVEL_CONFIG = [
+  { level: 1, mazeW: 19, mazeH: 19, monsters: 1, monsterSpeed: 4500, treasures: 3 },
+  { level: 2, mazeW: 21, mazeH: 21, monsters: 1, monsterSpeed: 4000, treasures: 3 },
+  { level: 3, mazeW: 23, mazeH: 23, monsters: 2, monsterSpeed: 3800, treasures: 3 },
+  { level: 4, mazeW: 25, mazeH: 25, monsters: 2, monsterSpeed: 3400, treasures: 3 },
+  { level: 5, mazeW: 27, mazeH: 27, monsters: 2, monsterSpeed: 3000, treasures: 3 },
+  { level: 6, mazeW: 27, mazeH: 27, monsters: 3, monsterSpeed: 2800, treasures: 3 },
+  { level: 7, mazeW: 29, mazeH: 29, monsters: 3, monsterSpeed: 2500, treasures: 3 },
+  { level: 8, mazeW: 31, mazeH: 31, monsters: 3, monsterSpeed: 2200, treasures: 3 },
+];
+
+// Leaderboard (localStorage)
+class Leaderboard {
+  constructor() {
+    this.key = 'morskoy_leaderboard';
+  }
+
+  getScores() {
+    try {
+      return JSON.parse(localStorage.getItem(this.key)) || [];
+    } catch { return []; }
+  }
+
+  addScore(entry) {
+    const scores = this.getScores();
+    scores.push(entry);
+    scores.sort((a, b) => {
+      if (b.level !== a.level) return b.level - a.level;
+      if (b.treasures !== a.treasures) return b.treasures - a.treasures;
+      return b.accuracy - a.accuracy;
+    });
+    // Keep top 20
+    localStorage.setItem(this.key, JSON.stringify(scores.slice(0, 20)));
+  }
+
+  render() {
+    const scores = this.getScores();
+    const tbody = document.getElementById('leaderboard-body');
+    const emptyMsg = document.getElementById('leaderboard-empty');
+    tbody.innerHTML = '';
+
+    if (scores.length === 0) {
+      emptyMsg.classList.remove('hidden');
+      return;
+    }
+    emptyMsg.classList.add('hidden');
+
+    scores.forEach((s, i) => {
+      const tr = document.createElement('tr');
+      if (i < 3) tr.className = `rank-${i + 1}`;
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td>${this._escapeHtml(s.name)}</td>
+        <td>${s.level}</td>
+        <td>${s.treasures}</td>
+        <td>${s.accuracy}%</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  _escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+}
 
 class Game {
   constructor() {
-    this.state = 'menu'; // menu, playing, topic_select, question, direction_select, won, lost
+    this.state = 'menu';
     this.maze = null;
     this.mazeGen = null;
     this.renderer = null;
     this.audio = null;
     this.questionManager = null;
+    this.leaderboard = new Leaderboard();
 
     // Settings
     this.isCreepy = true;
-    this.monsterCount = 1;
+    this.monsterCountSetting = 1;
     this.langLevel = 'A2';
-    this.mazeWidth = 25;
-    this.mazeHeight = 25;
+    this.playerName = '';
+
+    // Level
+    this.currentLevel = 1;
 
     // Player
     this.playerX = 1;
@@ -29,7 +102,7 @@ class Game {
     this.monsters = [];
 
     // Treasures
-    this.treasures = []; // {x, y, collected}
+    this.treasures = [];
 
     // Effects
     this.expandedVisionTurns = 0;
@@ -37,51 +110,94 @@ class Game {
     this.revealTurns = 0;
     this.currentTopic = null;
     this.currentQuestion = null;
+
+    // Touch/swipe
+    this.touchStartX = 0;
+    this.touchStartY = 0;
+    this.swipeThreshold = 30;
+
+    this._initTouchControls();
+  }
+
+  _initTouchControls() {
+    const canvas = document.getElementById('game-canvas');
+
+    canvas.addEventListener('touchstart', (e) => {
+      if (this.state !== 'direction_select') return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      this.touchStartX = touch.clientX;
+      this.touchStartY = touch.clientY;
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (this.state !== 'direction_select') return;
+      e.preventDefault();
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - this.touchStartX;
+      const dy = touch.clientY - this.touchStartY;
+
+      if (Math.abs(dx) < this.swipeThreshold && Math.abs(dy) < this.swipeThreshold) return;
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        this.movePlayer(dx > 0 ? 'right' : 'left');
+      } else {
+        this.movePlayer(dy > 0 ? 'down' : 'up');
+      }
+    }, { passive: false });
   }
 
   init(settings) {
     this.isCreepy = settings.isCreepy;
-    this.monsterCount = settings.monsterCount;
+    this.monsterCountSetting = settings.monsterCount;
     this.langLevel = settings.langLevel;
+    this.playerName = settings.playerName || 'Unknown';
+    this.currentLevel = settings.level || 1;
 
-    // Apply atmosphere
     if (!this.isCreepy) {
       document.body.classList.add('calm-mode');
     } else {
       document.body.classList.remove('calm-mode');
     }
 
+    // Get level config (clamp to max defined, then extrapolate)
+    const lvlCfg = this._getLevelConfig(this.currentLevel);
+
     // Generate maze
-    this.mazeGen = new MazeGenerator(this.mazeWidth, this.mazeHeight);
+    this.mazeGen = new MazeGenerator(lvlCfg.mazeW, lvlCfg.mazeH);
     this.maze = this.mazeGen.generate();
 
-    // Get walkable cells
     const pathCells = this.mazeGen.getPathCells();
 
-    // Place player at start
+    // Place player
     this.playerX = 1;
     this.playerY = 1;
 
     // Place treasures far from player
     this.treasures = [];
+    this.totalTreasures = lvlCfg.treasures;
     const farCells = pathCells.filter(c =>
-      Math.abs(c.x - this.playerX) + Math.abs(c.y - this.playerY) > 10
+      Math.abs(c.x - this.playerX) + Math.abs(c.y - this.playerY) > 8
     );
     const shuffledFar = this._shuffle([...farCells]);
     for (let i = 0; i < this.totalTreasures && i < shuffledFar.length; i++) {
       this.treasures.push({ x: shuffledFar[i].x, y: shuffledFar[i].y, collected: false });
     }
 
-    // Place monsters far from player but not on treasures
+    // Monster count: use setting if > config, else config
+    const monsterCount = Math.max(lvlCfg.monsters, this.monsterCountSetting);
+
+    // Place monsters
     this.monsters.forEach(m => m.stop());
     this.monsters = [];
     const monsterCells = shuffledFar.filter(c =>
       !this.treasures.some(t => t.x === c.x && t.y === c.y)
     );
-    for (let i = 0; i < this.monsterCount && i < monsterCells.length; i++) {
-      const cell = monsterCells[i + this.totalTreasures]; // offset past treasure cells
+    for (let i = 0; i < monsterCount && i + this.totalTreasures < monsterCells.length; i++) {
+      const cell = monsterCells[i + this.totalTreasures];
       if (!cell) continue;
       const monster = new Monster(cell.x, cell.y, this.mazeGen);
+      monster.moveInterval = lvlCfg.monsterSpeed;
       this.monsters.push(monster);
     }
 
@@ -91,15 +207,12 @@ class Game {
     this.renderer = new DungeonRenderer(canvas, this.isCreepy);
     this.renderer.buildMaze(this.mazeGen);
     this.renderer.createPlayer(this.playerX, this.playerY);
-    // Snap camera to player immediately (no slow lerp on first frame)
     this.renderer.updateCamera(this.playerX, this.playerY, true);
 
-    // Create monster meshes
     this.monsters.forEach((m, i) => {
       this.renderer.createMonster(m.x, m.y, i);
     });
 
-    // Create treasure meshes
     this.treasures.forEach((t, i) => {
       this.renderer.createTreasure(t.x, t.y, i);
     });
@@ -110,7 +223,10 @@ class Game {
     this.audio.init(this.isCreepy);
 
     // Init questions
-    this.questionManager = new QuestionManager(this.langLevel);
+    if (!this.questionManager) {
+      this.questionManager = new QuestionManager(this.langLevel);
+    }
+    this.questionManager.setLevel(this.langLevel);
 
     // Reset state
     this.treasuresCollected = 0;
@@ -130,47 +246,57 @@ class Game {
 
     // Update HUD
     this._updateHUD();
-
-    // Show topic panel
     this._showTopicPanel();
 
     // Start render loop
     this.renderer.startLoop(() => this._update());
   }
 
+  _getLevelConfig(level) {
+    if (level <= LEVEL_CONFIG.length) {
+      return LEVEL_CONFIG[level - 1];
+    }
+    // Extrapolate beyond defined levels
+    const last = LEVEL_CONFIG[LEVEL_CONFIG.length - 1];
+    const extra = level - LEVEL_CONFIG.length;
+    return {
+      level: level,
+      mazeW: Math.min(last.mazeW + extra * 2, 41),
+      mazeH: Math.min(last.mazeH + extra * 2, 41),
+      monsters: Math.min(last.monsters + Math.floor(extra / 2), 5),
+      monsterSpeed: Math.max(last.monsterSpeed - extra * 200, 1200),
+      treasures: 3,
+    };
+  }
+
   _update() {
-    // Update player mesh position (smooth)
     this.renderer.updatePlayer(this.playerX, this.playerY);
     this.renderer.updateCamera(this.playerX, this.playerY);
 
-    // Update monsters
     this.monsters.forEach((m, i) => {
       const isVisible = this.renderer.isInVisibleRange(this.playerX, this.playerY, m.x, m.y);
       const isRevealed = this.monsterRevealed;
       this.renderer.updateMonster(i, m.x, m.y, isVisible, isRevealed);
     });
 
-    // Update treasures
     this.treasures.forEach((t, i) => {
       const isVisible = this.renderer.isInVisibleRange(this.playerX, this.playerY, t.x, t.y);
       this.renderer.updateTreasure(i, isVisible, t.collected);
     });
 
-    // Update audio proximity
-    if (this.monsters.length > 0) {
+    // Audio proximity
+    if (this.monsters.length > 0 && this.audio) {
       const closest = Math.min(...this.monsters.map(m => m.getDistanceToPlayer()));
-      // Map distance to proximity: closer = higher value
-      const maxHearDistance = 12;
-      const proximity = Math.max(0, 1 - closest / maxHearDistance);
+      const maxHear = 12;
+      const proximity = Math.max(0, 1 - closest / maxHear);
       this.audio.updateMonsterProximity(proximity);
     }
   }
 
   _onMonsterMove() {
-    // Check collision with player
     for (const m of this.monsters) {
       if (m.x === this.playerX && m.y === this.playerY) {
-        this._gameOver();
+        this._gameOver(m);
         return;
       }
     }
@@ -200,13 +326,12 @@ class Game {
       this._applyBonus(this.currentQuestion.topicInfo.bonus);
       this._showFeedback(true, this.currentQuestion.options.options[this.currentQuestion.options.correctIndex]);
 
-      // After short delay, go to direction select if bonus gives moves
       setTimeout(() => {
+        if (this.state === 'lost' || this.state === 'won') return;
         if (this.movesLeft > 0) {
           this.state = 'direction_select';
           this._showDirectionPanel();
         } else {
-          // Bonus was non-movement (vision, reveal, bait)
           this.state = 'topic_select';
           this._showTopicPanel();
         }
@@ -215,8 +340,8 @@ class Game {
       this.audio.playWrongAnswer();
       this._showFeedback(false, this.currentQuestion.options.options[this.currentQuestion.options.correctIndex]);
 
-      // No move - back to topic select
       setTimeout(() => {
+        if (this.state === 'lost' || this.state === 'won') return;
         this.state = 'topic_select';
         this._showTopicPanel();
       }, 1500);
@@ -248,7 +373,6 @@ class Game {
   }
 
   _placeBait() {
-    // Place bait 5-8 cells away from player in a random walkable direction
     const pathCells = this.mazeGen.getPathCells();
     const candidates = pathCells.filter(c => {
       const dist = Math.abs(c.x - this.playerX) + Math.abs(c.y - this.playerY);
@@ -259,8 +383,6 @@ class Game {
       const bait = candidates[Math.floor(Math.random() * candidates.length)];
       this.renderer.placeBait(bait.x, bait.y);
       this.monsters.forEach(m => m.setBait(bait.x, bait.y));
-
-      // Remove bait visual after some time
       setTimeout(() => this.renderer.removeBait(), 20000);
     }
   }
@@ -275,7 +397,6 @@ class Game {
     const newX = this.playerX + dir.x;
     const newY = this.playerY + dir.y;
 
-    // Check bounds and walls
     if (newX < 0 || newX >= this.mazeGen.width || newY < 0 || newY >= this.mazeGen.height) return;
     if (this.mazeGen.grid[newY][newX] === 0) return;
 
@@ -285,24 +406,20 @@ class Game {
 
     this.audio.playStep();
 
-    // Check treasure pickup
     this._checkTreasures();
 
-    // Check monster collision
     for (const m of this.monsters) {
       if (m.x === this.playerX && m.y === this.playerY) {
-        this._gameOver();
+        this._gameOver(m);
         return;
       }
     }
 
-    // Check win
     if (this.treasuresCollected >= this.totalTreasures) {
       this._win();
       return;
     }
 
-    // Decrement effect turns
     this._tickEffects();
 
     if (this.movesLeft > 0) {
@@ -344,18 +461,34 @@ class Game {
     this._updateStatusEffects();
   }
 
-  _gameOver() {
+  _gameOver(killerMonster) {
+    if (this.state === 'lost') return;
     this.state = 'lost';
     this.monsters.forEach(m => m.stop());
-    this.renderer.stopLoop();
     this.audio.playMonsterCatch();
 
-    setTimeout(() => {
+    // Save to leaderboard
+    const accuracy = this.questionsAnswered > 0
+      ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100) : 0;
+    this.leaderboard.addScore({
+      name: this.playerName,
+      level: this.currentLevel,
+      treasures: this.treasuresCollected,
+      accuracy: accuracy,
+      date: new Date().toISOString().split('T')[0],
+    });
+
+    // Death animation
+    const mx = killerMonster ? killerMonster.x : this.playerX;
+    const my = killerMonster ? killerMonster.y : this.playerY;
+
+    this.renderer.playDeathAnimation(mx, my, () => {
+      this.renderer.stopLoop();
       document.getElementById('game-screen').classList.remove('active');
       document.getElementById('lose-screen').classList.add('active');
       document.getElementById('lose-stats').textContent =
-        `Вопросов: ${this.questionsAnswered} | Правильных: ${this.questionsCorrect} | Сокровищ: ${this.treasuresCollected}/${this.totalTreasures}`;
-    }, 1000);
+        `Уровень: ${this.currentLevel} | Вопросов: ${this.questionsAnswered} | Правильных: ${this.questionsCorrect} | Сокровищ: ${this.treasuresCollected}/${this.totalTreasures}`;
+    });
   }
 
   _win() {
@@ -364,12 +497,39 @@ class Game {
     this.renderer.stopLoop();
     this.audio.playTreasureCollect();
 
+    const accuracy = this.questionsAnswered > 0
+      ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100) : 0;
+    this.leaderboard.addScore({
+      name: this.playerName,
+      level: this.currentLevel,
+      treasures: this.treasuresCollected,
+      accuracy: accuracy,
+      date: new Date().toISOString().split('T')[0],
+    });
+
     setTimeout(() => {
       document.getElementById('game-screen').classList.remove('active');
       document.getElementById('win-screen').classList.add('active');
       document.getElementById('win-stats').textContent =
-        `Вопросов: ${this.questionsAnswered} | Правильных: ${this.questionsCorrect}`;
+        `Уровень ${this.currentLevel} пройден! | Точность: ${accuracy}%`;
     }, 500);
+  }
+
+  nextLevel() {
+    this.currentLevel++;
+    document.getElementById('win-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+    this.init({
+      isCreepy: this.isCreepy,
+      monsterCount: this.monsterCountSetting,
+      langLevel: this.langLevel,
+      playerName: this.playerName,
+      level: this.currentLevel,
+    });
+  }
+
+  restart() {
+    this.currentLevel = 1;
   }
 
   // === UI Methods ===
@@ -401,9 +561,7 @@ class Game {
       btn.className = 'option-btn';
       btn.textContent = opt;
       btn.addEventListener('click', () => {
-        // Disable all buttons
         optionsDiv.querySelectorAll('.option-btn').forEach(b => b.disabled = true);
-        // Highlight correct/wrong
         btn.classList.add(i === correctIndex ? 'correct' : 'wrong');
         if (i !== correctIndex) {
           optionsDiv.children[correctIndex].classList.add('correct');
@@ -439,14 +597,20 @@ class Game {
       `Выберите направление (ходов: ${this.movesLeft}):`;
 
     this._updateDirectionButtons();
+
+    // Show swipe hint on mobile
+    if ('ontouchstart' in window) {
+      const hint = document.getElementById('swipe-hint');
+      hint.textContent = 'Свайпните по экрану для движения';
+      hint.classList.add('show');
+      setTimeout(() => hint.classList.remove('show'), 2000);
+    }
   }
 
   _updateDirectionButtons() {
     const dirs = {
-      up: { x: 0, y: -1 },
-      down: { x: 0, y: 1 },
-      left: { x: -1, y: 0 },
-      right: { x: 1, y: 0 }
+      up: { x: 0, y: -1 }, down: { x: 0, y: 1 },
+      left: { x: -1, y: 0 }, right: { x: 1, y: 0 }
     };
 
     document.querySelectorAll('.dir-btn').forEach(btn => {
@@ -459,14 +623,13 @@ class Game {
       btn.disabled = !canMove;
     });
 
-    // Update move count display
-    const panel = document.getElementById('direction-panel');
-    panel.querySelector('.direction-prompt').textContent =
+    document.querySelector('#direction-panel .direction-prompt').textContent =
       `Выберите направление (ходов: ${this.movesLeft}):`;
   }
 
   _updateHUD() {
     document.getElementById('treasure-count').textContent = this.treasuresCollected;
+    document.getElementById('level-num').textContent = this.currentLevel;
   }
 
   _updateStatusEffects() {
@@ -476,14 +639,14 @@ class Game {
     if (this.expandedVisionTurns > 0) {
       const badge = document.createElement('div');
       badge.className = 'status-badge';
-      badge.textContent = `👁 Зрение +${this.expandedVisionTurns}`;
+      badge.textContent = `Зрение +${this.expandedVisionTurns}`;
       container.appendChild(badge);
     }
 
     if (this.revealTurns > 0) {
       const badge = document.createElement('div');
       badge.className = 'status-badge';
-      badge.textContent = `📍 Монстр виден ${this.revealTurns}`;
+      badge.textContent = `Монстр виден ${this.revealTurns}`;
       container.appendChild(badge);
     }
   }

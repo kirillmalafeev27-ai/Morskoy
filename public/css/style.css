@@ -11,6 +11,9 @@ body {
   overflow: hidden;
   width: 100vw;
   height: 100vh;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .screen {
@@ -18,6 +21,7 @@ body {
   position: absolute;
   top: 0; left: 0;
   width: 100%; height: 100%;
+  overflow-y: auto;
 }
 
 .screen.active {
@@ -30,7 +34,8 @@ body {
 .menu-container {
   text-align: center;
   max-width: 500px;
-  padding: 40px;
+  padding: 40px 20px;
+  width: 100%;
 }
 
 #game-title {
@@ -45,6 +50,32 @@ body {
   font-size: 1.1em;
   color: #888;
   margin-bottom: 40px;
+}
+
+/* Player name input */
+.name-input-group {
+  margin-bottom: 20px;
+}
+
+.name-input-group input {
+  width: 100%;
+  padding: 12px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  border-radius: 6px;
+  font-size: 1.1em;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.name-input-group input:focus {
+  outline: none;
+  border-color: #ff6a00;
+}
+
+.name-input-group input::placeholder {
+  color: #555;
 }
 
 .menu-options {
@@ -143,6 +174,23 @@ body {
   transform: scale(1.05);
 }
 
+.btn-secondary {
+  padding: 10px 24px;
+  font-size: 0.95em;
+  background: transparent;
+  color: #aaa;
+  border: 1px solid #444;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+  margin-top: 10px;
+}
+
+.btn-secondary:hover {
+  border-color: #888;
+  color: #e0e0e0;
+}
+
 /* ===== GAME SCREEN ===== */
 #game-screen {
   display: none;
@@ -158,22 +206,50 @@ body {
   display: block;
 }
 
+/* Death overlay */
+#death-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: radial-gradient(circle, rgba(150,0,0,0) 0%, rgba(80,0,0,0.8) 100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s;
+  z-index: 10;
+}
+
+#death-overlay.active {
+  opacity: 1;
+}
+
 /* HUD */
 #hud {
   position: absolute;
-  top: 20px;
-  left: 20px;
+  top: 12px;
+  left: 12px;
+  right: 12px;
   display: flex;
-  gap: 20px;
+  gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
+  z-index: 5;
 }
 
 #treasure-counter {
   background: rgba(0,0,0,0.7);
-  padding: 8px 16px;
+  padding: 6px 14px;
   border-radius: 8px;
-  font-size: 1.3em;
+  font-size: 1.2em;
   border: 1px solid #444;
+}
+
+#level-display {
+  background: rgba(0,0,0,0.7);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 1em;
+  border: 1px solid #444;
+  color: #ff6a00;
 }
 
 .hud-icon {
@@ -202,32 +278,34 @@ body {
 /* Topic Panel */
 #topic-panel {
   position: absolute;
-  bottom: 20px;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0,0,0,0.85);
-  padding: 20px;
+  padding: 16px;
   border-radius: 12px;
   border: 1px solid #333;
-  min-width: 600px;
+  width: calc(100% - 24px);
+  max-width: 650px;
   backdrop-filter: blur(10px);
+  z-index: 5;
 }
 
 #topic-panel h3 {
   text-align: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   color: #aaa;
-  font-size: 0.95em;
+  font-size: 0.9em;
 }
 
 .topic-buttons {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .topic-btn {
   flex: 1;
-  padding: 12px 8px;
+  padding: 10px 6px;
   background: #1a1a1a;
   border: 1px solid #333;
   color: #e0e0e0;
@@ -236,8 +314,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   transition: all 0.2s;
+  min-width: 0;
 }
 
 .topic-btn:hover {
@@ -245,71 +324,83 @@ body {
   background: #1f1a14;
 }
 
+.topic-btn:active {
+  transform: scale(0.95);
+}
+
 .topic-name {
-  font-size: 0.8em;
+  font-size: 0.75em;
   font-weight: bold;
+  text-align: center;
+  word-break: break-word;
 }
 
 .topic-bonus {
-  font-size: 0.7em;
+  font-size: 0.65em;
   color: #ff6a00;
+  text-align: center;
 }
 
 .topic-diff {
-  font-size: 0.7em;
+  font-size: 0.65em;
   color: #666;
 }
 
 /* Question Panel */
 #question-panel {
   position: absolute;
-  bottom: 20px;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0,0,0,0.9);
-  padding: 24px;
+  padding: 20px;
   border-radius: 12px;
   border: 1px solid #444;
-  min-width: 500px;
-  max-width: 700px;
+  width: calc(100% - 24px);
+  max-width: 600px;
   backdrop-filter: blur(10px);
+  z-index: 5;
 }
 
 .question-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 12px;
-  font-size: 0.85em;
+  margin-bottom: 10px;
+  font-size: 0.8em;
   color: #888;
 }
 
 #question-text {
-  font-size: 1.1em;
-  margin-bottom: 16px;
+  font-size: 1.05em;
+  margin-bottom: 14px;
   line-height: 1.5;
 }
 
 #question-options {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .option-btn {
-  padding: 10px 16px;
+  padding: 10px 14px;
   background: #1a1a1a;
   border: 1px solid #333;
   color: #e0e0e0;
   border-radius: 6px;
   cursor: pointer;
   text-align: left;
-  font-size: 1em;
+  font-size: 0.95em;
   transition: all 0.2s;
 }
 
 .option-btn:hover {
   border-color: #ff6a00;
   background: #1f1a14;
+}
+
+.option-btn:active {
+  transform: scale(0.98);
 }
 
 .option-btn.correct {
@@ -343,10 +434,10 @@ body {
 }
 
 #question-feedback {
-  margin-top: 12px;
-  padding: 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
   border-radius: 6px;
-  font-size: 0.95em;
+  font-size: 0.9em;
 }
 
 #question-feedback.correct {
@@ -364,21 +455,22 @@ body {
 /* Direction panel */
 #direction-panel {
   position: absolute;
-  bottom: 20px;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0,0,0,0.85);
-  padding: 20px;
+  padding: 16px;
   border-radius: 12px;
   border: 1px solid #333;
   text-align: center;
   backdrop-filter: blur(10px);
+  z-index: 5;
 }
 
 .direction-prompt {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   color: #aaa;
-  font-size: 0.95em;
+  font-size: 0.9em;
 }
 
 .direction-buttons {
@@ -386,14 +478,14 @@ body {
   grid-template-areas:
     ". up ."
     "left down right";
-  grid-template-columns: 60px 60px 60px;
+  grid-template-columns: 64px 64px 64px;
   gap: 6px;
   justify-content: center;
 }
 
 .dir-btn {
-  width: 60px;
-  height: 60px;
+  width: 64px;
+  height: 64px;
   font-size: 1.5em;
   background: #1a1a1a;
   border: 1px solid #444;
@@ -401,11 +493,17 @@ body {
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .dir-btn:hover {
   border-color: #ff6a00;
   background: #1f1a14;
+}
+
+.dir-btn:active {
+  transform: scale(0.9);
+  background: #2a1a0a;
 }
 
 .dir-btn[data-dir="up"] { grid-area: up; }
@@ -418,15 +516,97 @@ body {
   cursor: not-allowed;
 }
 
+/* ===== TUTORIAL ===== */
+#tutorial-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.tutorial-content {
+  max-width: 500px;
+  padding: 30px 24px;
+  text-align: center;
+  width: 100%;
+}
+
+.tutorial-content h2 {
+  color: #ff6a00;
+  margin-bottom: 24px;
+  font-size: 1.6em;
+}
+
+.tutorial-step {
+  text-align: left;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  font-size: 0.95em;
+  line-height: 1.4;
+}
+
+.tutorial-step .step-icon {
+  font-size: 1.2em;
+  margin-right: 8px;
+}
+
+.tutorial-step strong {
+  color: #ff6a00;
+}
+
+#tutorial-close {
+  margin-top: 20px;
+}
+
+/* ===== LEADERBOARD ===== */
+#leaderboard-screen .end-container {
+  max-width: 500px;
+  width: 100%;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+}
+
+.leaderboard-table th {
+  color: #ff6a00;
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+  font-size: 0.85em;
+  text-align: left;
+}
+
+.leaderboard-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #1a1a1a;
+  font-size: 0.9em;
+}
+
+.leaderboard-table tr:nth-child(even) td {
+  background: rgba(255,255,255,0.02);
+}
+
+.leaderboard-table .rank-1 td { color: #ffd700; }
+.leaderboard-table .rank-2 td { color: #c0c0c0; }
+.leaderboard-table .rank-3 td { color: #cd7f32; }
+
 /* End screens */
 .end-container {
   text-align: center;
-  padding: 40px;
+  padding: 30px 20px;
 }
 
 .end-container h1 {
-  font-size: 3em;
-  margin-bottom: 20px;
+  font-size: 2.5em;
+  margin-bottom: 16px;
 }
 
 #win-screen .end-container h1 {
@@ -440,19 +620,27 @@ body {
 }
 
 .end-container p {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   color: #aaa;
 }
 
 .end-container .btn-primary {
-  margin-top: 30px;
+  margin-top: 20px;
+}
+
+.end-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
 }
 
 .hidden {
   display: none !important;
 }
 
-/* Calm mode overrides */
+/* ===== CALM MODE ===== */
 body.calm-mode #game-title {
   color: #4a9eff;
   text-shadow: 0 0 30px rgba(74,158,255,0.3);
@@ -484,4 +672,154 @@ body.calm-mode .option-btn:hover {
 
 body.calm-mode .dir-btn:hover {
   border-color: #4a9eff;
+}
+
+body.calm-mode #level-display {
+  color: #4a9eff;
+}
+
+body.calm-mode .tutorial-content h2 {
+  color: #4a9eff;
+}
+
+body.calm-mode .tutorial-step strong {
+  color: #4a9eff;
+}
+
+body.calm-mode .leaderboard-table th {
+  color: #4a9eff;
+}
+
+/* ===== MOBILE ===== */
+@media (max-width: 768px) {
+  #game-title {
+    font-size: 2em;
+    letter-spacing: 4px;
+  }
+
+  .subtitle {
+    font-size: 0.9em;
+    margin-bottom: 24px;
+  }
+
+  .menu-container {
+    padding: 20px 16px;
+  }
+
+  .menu-options {
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+
+  .btn-primary {
+    padding: 12px 30px;
+    font-size: 1em;
+  }
+
+  /* Topic panel: 2 rows on mobile */
+  .topic-buttons {
+    flex-wrap: wrap;
+  }
+
+  .topic-btn {
+    flex: 1 1 calc(50% - 4px);
+    min-width: calc(50% - 4px);
+    padding: 8px 4px;
+  }
+
+  .topic-btn:last-child {
+    flex: 1 1 100%;
+  }
+
+  .topic-name {
+    font-size: 0.7em;
+  }
+
+  .topic-bonus {
+    font-size: 0.6em;
+  }
+
+  /* Bigger direction buttons on mobile */
+  .direction-buttons {
+    grid-template-columns: 72px 72px 72px;
+  }
+
+  .dir-btn {
+    width: 72px;
+    height: 72px;
+    font-size: 1.8em;
+  }
+
+  #question-text {
+    font-size: 0.95em;
+  }
+
+  .option-btn {
+    padding: 12px 14px;
+  }
+
+  #hud {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+  }
+
+  #treasure-counter {
+    font-size: 1em;
+    padding: 5px 10px;
+  }
+
+  #level-display {
+    font-size: 0.85em;
+    padding: 5px 10px;
+  }
+
+  .tutorial-content {
+    padding: 20px 16px;
+  }
+
+  .tutorial-content h2 {
+    font-size: 1.3em;
+  }
+
+  .tutorial-step {
+    font-size: 0.85em;
+    padding: 8px 10px;
+  }
+
+  .end-container h1 {
+    font-size: 2em;
+  }
+}
+
+@media (max-width: 400px) {
+  #game-title {
+    font-size: 1.5em;
+    letter-spacing: 3px;
+  }
+
+  .topic-btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* ===== SWIPE HINT ===== */
+#swipe-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0,0,0,0.8);
+  padding: 16px 24px;
+  border-radius: 12px;
+  font-size: 1.1em;
+  color: #aaa;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s;
+  z-index: 8;
+}
+
+#swipe-hint.show {
+  opacity: 1;
 }

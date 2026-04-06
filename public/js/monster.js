@@ -6,7 +6,7 @@ class Monster {
     this.x = x;
     this.y = y;
     this.maze = maze;
-    this.moveInterval = 2500; // ms between moves
+    this.moveInterval = 4000; // ms between moves
     this.timer = null;
     this.baitTarget = null; // {x, y} if bait is active
     this.baitTurnsLeft = 0;

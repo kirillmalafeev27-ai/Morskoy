@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Morskoy Dungeon</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -14,6 +14,11 @@
       <p class="subtitle" id="game-subtitle">Грамматика немецкого в тёмных коридорах</p>
 
       <div class="menu-options">
+        <div class="option-group name-input-group">
+          <label>Имя игрока:</label>
+          <input type="text" id="player-name" placeholder="Введите ваше имя..." maxlength="20">
+        </div>
+
         <div class="option-group">
           <label>Уровень немецкого:</label>
           <select id="lang-level">
@@ -47,12 +52,48 @@
       </div>
 
       <button id="start-btn" class="btn-primary">НАЧАТЬ ИГРУ</button>
+      <br>
+      <button id="leaderboard-btn" class="btn-secondary">ТАБЛИЦА ЛИДЕРОВ</button>
+    </div>
+  </div>
+
+  <!-- Tutorial Overlay -->
+  <div id="tutorial-overlay" class="hidden">
+    <div class="tutorial-content">
+      <h2>КАК ИГРАТЬ</h2>
+      <div class="tutorial-step">
+        <span class="step-icon">1.</span>
+        <strong>Выберите тему</strong> немецкой грамматики — каждая даёт уникальный бонус
+      </div>
+      <div class="tutorial-step">
+        <span class="step-icon">2.</span>
+        <strong>Ответьте на вопрос</strong> — правильный ответ активирует бонус
+      </div>
+      <div class="tutorial-step">
+        <span class="step-icon">3.</span>
+        <strong>Выберите направление</strong> движения (стрелки / WASD / свайп)
+      </div>
+      <div class="tutorial-step">
+        <span class="step-icon">4.</span>
+        Соберите <strong>3 сокровища</strong> до того, как монстр вас настигнет
+      </div>
+      <div class="tutorial-step">
+        <span class="step-icon">!</span>
+        Монстр <strong>двигается постоянно</strong>, даже пока вы думаете!
+      </div>
+      <div class="tutorial-step">
+        <span class="step-icon">?</span>
+        Вы видите только <strong>2 клетки</strong> вокруг. Слушайте — монстр рычит громче рядом
+      </div>
+      <button id="tutorial-close" class="btn-primary">ПОНЯТНО!</button>
     </div>
   </div>
 
   <!-- Game Screen -->
   <div id="game-screen" class="screen">
     <canvas id="game-canvas"></canvas>
+    <div id="death-overlay"></div>
+    <div id="swipe-hint"></div>
 
     <!-- HUD -->
     <div id="hud">
@@ -60,10 +101,11 @@
         <span class="hud-icon">💎</span>
         <span id="treasure-count">0</span> / 3
       </div>
+      <div id="level-display">Уровень <span id="level-num">1</span></div>
       <div id="status-effects"></div>
     </div>
 
-    <!-- Direction controls (shown after answering) -->
+    <!-- Direction controls -->
     <div id="direction-panel" class="hidden">
       <p class="direction-prompt">Выберите направление:</p>
       <div class="direction-buttons">
@@ -126,9 +168,12 @@
   <div id="win-screen" class="screen">
     <div class="end-container">
       <h1>ПОБЕДА!</h1>
-      <p>Вы собрали все сокровища!</p>
+      <p>Уровень пройден!</p>
       <p id="win-stats"></p>
-      <button id="win-restart" class="btn-primary">Играть снова</button>
+      <div class="end-buttons">
+        <button id="win-next" class="btn-primary">СЛЕДУЮЩИЙ УРОВЕНЬ</button>
+        <button id="win-restart" class="btn-secondary">В меню</button>
+      </div>
     </div>
   </div>
 
@@ -138,7 +183,25 @@
       <h1 id="lose-title">ПОРАЖЕНИЕ</h1>
       <p id="lose-message">Монстр вас настиг...</p>
       <p id="lose-stats"></p>
-      <button id="lose-restart" class="btn-primary">Попробовать снова</button>
+      <div class="end-buttons">
+        <button id="lose-restart" class="btn-primary">Попробовать снова</button>
+        <button id="lose-menu" class="btn-secondary">В меню</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaderboard Screen -->
+  <div id="leaderboard-screen" class="screen">
+    <div class="end-container">
+      <h1 style="color: #ff6a00; font-size: 2em;">ТАБЛИЦА ЛИДЕРОВ</h1>
+      <table class="leaderboard-table">
+        <thead>
+          <tr><th>#</th><th>Имя</th><th>Уровень</th><th>Сокровища</th><th>Точность</th></tr>
+        </thead>
+        <tbody id="leaderboard-body"></tbody>
+      </table>
+      <p id="leaderboard-empty" class="hidden" style="color:#666;">Пока нет результатов</p>
+      <button id="leaderboard-back" class="btn-primary">НАЗАД</button>
     </div>
   </div>
 
