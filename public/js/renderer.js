@@ -26,8 +26,9 @@ class DungeonRenderer {
     // Background color
     this.bgColor = isCreepy ? 0x050505 : 0x0a1628;
     this.scene.background = new THREE.Color(this.bgColor);
-    // Fog matches visible radius: near=player area, far=edge of vision
-    this.scene.fog = new THREE.Fog(this.bgColor, 6, 22);
+    // Fog accounts for camera height (~23 units from scene).
+    // near=21 keeps tiles at player visible, far=28 hides beyond 2 tiles.
+    this.scene.fog = new THREE.Fog(this.bgColor, 21, 28);
 
     // Set initial camera position
     this.camera.position.set(2, 20, 14);
@@ -1041,11 +1042,13 @@ class DungeonRenderer {
   }
 
   _updateFogForRadius() {
-    // Expand/contract fog to match visible radius
-    const T = this.TILE_SIZE;
-    const range = (this.visibleRadius + 0.5) * T;
-    this.scene.fog.near = range * 0.6;
-    this.scene.fog.far = range * 2.2;
+    // Camera is ~23 units from scene center. Fog distance = camera distance to ground tiles.
+    // Base: near=21, far=28 for 2-tile radius. Adjust proportionally for other radii.
+    const baseNear = 21;
+    const baseFar = 28;
+    const ratio = this.visibleRadius / this.baseVisibleRadius;
+    this.scene.fog.near = baseNear - 2 + ratio * 2;
+    this.scene.fog.far = baseFar - 4 + ratio * 4;
   }
 
   isInVisibleRange(playerX, playerY, cellX, cellY) {
