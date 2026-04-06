@@ -26,7 +26,7 @@ class DungeonRenderer {
     // Background color
     this.bgColor = isCreepy ? 0x050505 : 0x0a1628;
     this.scene.background = new THREE.Color(this.bgColor);
-    this.scene.fog = new THREE.Fog(this.bgColor, 8, 35);
+    this.scene.fog = new THREE.Fog(this.bgColor, 15, 60);
 
     // Set initial camera position
     this.camera.position.set(2, 20, 14);
@@ -86,9 +86,9 @@ class DungeonRenderer {
       // Bloom - makes lights glow beautifully
       const bloomPass = new THREE.UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        this.isCreepy ? 0.8 : 0.4,  // strength
+        this.isCreepy ? 0.5 : 0.3,  // strength
         0.4,                          // radius
-        0.85                          // threshold
+        0.7                           // threshold
       );
       this.composer.addPass(bloomPass);
       this.bloomPass = bloomPass;
@@ -97,7 +97,7 @@ class DungeonRenderer {
       const vignetteShader = {
         uniforms: {
           tDiffuse: { value: null },
-          darkness: { value: this.isCreepy ? 1.8 : 1.0 },
+          darkness: { value: this.isCreepy ? 1.0 : 0.6 },
           offset: { value: 1.0 },
         },
         vertexShader: `
@@ -130,7 +130,7 @@ class DungeonRenderer {
           uniforms: {
             tDiffuse: { value: null },
             time: { value: 0 },
-            amount: { value: 0.06 },
+            amount: { value: 0.03 },
           },
           vertexShader: `
             varying vec2 vUv;
@@ -172,16 +172,16 @@ class DungeonRenderer {
     if (this.isCreepy) {
       this.wallMaterial = new THREE.MeshStandardMaterial({
         map: stoneTexture,
-        color: 0x3a2a1a,
-        roughness: 0.92,
+        color: 0x8a7a6a,
+        roughness: 0.85,
         metalness: 0.05,
         bumpMap: stoneTexture,
         bumpScale: 0.05,
       });
       this.floorMaterial = new THREE.MeshStandardMaterial({
         map: floorTexture,
-        color: 0x221a14,
-        roughness: 0.95,
+        color: 0x6a5a4a,
+        roughness: 0.9,
         metalness: 0.0,
         bumpMap: floorTexture,
         bumpScale: 0.03,
@@ -189,7 +189,7 @@ class DungeonRenderer {
     } else {
       this.wallMaterial = new THREE.MeshStandardMaterial({
         map: stoneTexture,
-        color: 0x4a6a8a,
+        color: 0x7a9aba,
         roughness: 0.75,
         metalness: 0.15,
         bumpMap: stoneTexture,
@@ -197,7 +197,7 @@ class DungeonRenderer {
       });
       this.floorMaterial = new THREE.MeshStandardMaterial({
         map: floorTexture,
-        color: 0x3a4a5a,
+        color: 0x6a7a8a,
         roughness: 0.8,
         metalness: 0.1,
         bumpMap: floorTexture,
@@ -300,6 +300,7 @@ class DungeonRenderer {
     if (useModels && this.modelCache.wall1) {
       const box = new THREE.Box3().setFromObject(this.modelCache.wall1);
       const size = box.getSize(new THREE.Vector3());
+      console.log('Wall model native size:', size.x, size.y, size.z, '-> wallScale:', size.x > 0 ? T / Math.max(size.x, size.z) : wallScale);
       if (size.x > 0) wallScale = T / Math.max(size.x, size.z);
     }
 
@@ -317,7 +318,7 @@ class DungeonRenderer {
           // WALL
           if (useModels && (this.modelCache.wall1 || this.modelCache.wall2)) {
             const key = Math.random() > 0.5 ? 'wall2' : 'wall1';
-            const wallModel = this._cloneModel(key, this.wallMaterial);
+            const wallModel = this._cloneModel(key); // keep original model materials
             if (wallModel) {
               wallModel.scale.setScalar(wallScale);
               wallModel.position.set(posX, 0, posZ);
@@ -336,7 +337,7 @@ class DungeonRenderer {
         } else {
           // FLOOR
           if (useModels && this.modelCache.floor) {
-            const floorModel = this._cloneModel('floor', this.floorMaterial);
+            const floorModel = this._cloneModel('floor'); // keep original model materials
             if (floorModel) {
               floorModel.scale.setScalar(wallScale);
               floorModel.position.set(posX, 0, posZ);
@@ -373,10 +374,18 @@ class DungeonRenderer {
     }
 
     const ambient = new THREE.AmbientLight(
-      this.isCreepy ? 0x221111 : 0x182838,
-      this.isCreepy ? 0.15 : 0.3
+      this.isCreepy ? 0x553322 : 0x334466,
+      this.isCreepy ? 0.6 : 0.8
     );
     this.scene.add(ambient);
+
+    // Directional light from above for general visibility
+    const dirLight = new THREE.DirectionalLight(
+      this.isCreepy ? 0x442211 : 0x556688,
+      this.isCreepy ? 0.3 : 0.4
+    );
+    dirLight.position.set(0, 30, 0);
+    this.scene.add(dirLight);
 
     // Floating dust particles in the whole maze
     this._createDustParticles(maze);
@@ -465,10 +474,10 @@ class DungeonRenderer {
         flame.position.set(posX, 2.2, posZ);
         this.scene.add(flame);
 
-        // Torch light (dim)
+        // Torch light
         const torchLight = new THREE.PointLight(
           this.isCreepy ? 0xff4400 : 0xffaa44,
-          0.3, T * 3, 2
+          0.8, T * 6, 1.5
         );
         torchLight.position.set(posX, 2.3, posZ);
         this.scene.add(torchLight);
@@ -503,7 +512,7 @@ class DungeonRenderer {
     for (const torch of this.torchParticles) {
       const flicker = 0.7 + Math.sin(time * 8 + torch.offset) * 0.15
                      + Math.sin(time * 13 + torch.offset * 2) * 0.1;
-      torch.light.intensity = 0.3 * flicker;
+      torch.light.intensity = 0.8 * flicker;
       torch.flame.scale.setScalar(0.8 + Math.sin(time * 6 + torch.offset) * 0.3);
       torch.flame.material.opacity = 0.5 + flicker * 0.3;
     }
@@ -519,18 +528,18 @@ class DungeonRenderer {
 
     this.playerLight = new THREE.PointLight(
       this.isCreepy ? 0xff8833 : 0x99bbff,
-      this.isCreepy ? 2.5 : 2.0,
-      this.visibleRadius * T * 3,
-      1.5
+      this.isCreepy ? 4.0 : 3.5,
+      this.visibleRadius * T * 5,
+      1.2
     );
-    this.playerLight.position.set(x * T, 2.5, y * T);
+    this.playerLight.position.set(x * T, 3, y * T);
     this.playerLight.castShadow = true;
     this.playerLight.shadow.mapSize.width = 512;
     this.playerLight.shadow.mapSize.height = 512;
     this.scene.add(this.playerLight);
 
-    this.playerFillLight = new THREE.PointLight(0xffffff, 0.5, this.visibleRadius * T * 4, 2);
-    this.playerFillLight.position.set(x * T, 8, y * T);
+    this.playerFillLight = new THREE.PointLight(0xffffff, 1.0, this.visibleRadius * T * 6, 1.5);
+    this.playerFillLight.position.set(x * T, 10, y * T);
     this.scene.add(this.playerFillLight);
   }
 
@@ -547,10 +556,10 @@ class DungeonRenderer {
     if (this.playerFillLight) {
       this.playerFillLight.position.x = this.playerMesh.position.x;
       this.playerFillLight.position.z = this.playerMesh.position.z;
-      this.playerFillLight.distance = this.visibleRadius * T * 4;
+      this.playerFillLight.distance = this.visibleRadius * T * 6;
     }
 
-    this.playerLight.distance = this.visibleRadius * T * 3;
+    this.playerLight.distance = this.visibleRadius * T * 5;
 
     // Gentle player bob
     const time = this.clock.getElapsedTime();
@@ -747,11 +756,11 @@ class DungeonRenderer {
     const ctx = canvas.getContext('2d');
 
     // Base color
-    ctx.fillStyle = isCreepy ? '#3a2818' : '#4a5a6a';
+    ctx.fillStyle = isCreepy ? '#6a5838' : '#6a7a8a';
     ctx.fillRect(0, 0, size, size);
 
     // Stone block lines
-    ctx.strokeStyle = isCreepy ? '#1a1008' : '#3a4a5a';
+    ctx.strokeStyle = isCreepy ? '#4a3818' : '#5a6a7a';
     ctx.lineWidth = 2;
 
     // Horizontal mortar lines
@@ -778,7 +787,7 @@ class DungeonRenderer {
       const x = Math.random() * size;
       const y = Math.random() * size;
       const brightness = Math.random() * 30 - 15;
-      const b = isCreepy ? 30 + brightness : 70 + brightness;
+      const b = isCreepy ? 70 + brightness : 100 + brightness;
       ctx.fillStyle = `rgb(${b},${b * 0.8},${b * 0.7})`;
       ctx.fillRect(x, y, 2, 2);
     }
@@ -798,11 +807,11 @@ class DungeonRenderer {
     const ctx = canvas.getContext('2d');
 
     // Base
-    ctx.fillStyle = isCreepy ? '#1a1410' : '#2a3440';
+    ctx.fillStyle = isCreepy ? '#4a3a2a' : '#4a5a6a';
     ctx.fillRect(0, 0, size, size);
 
     // Floor tile grid
-    ctx.strokeStyle = isCreepy ? '#0d0a08' : '#1a2430';
+    ctx.strokeStyle = isCreepy ? '#3a2a1a' : '#3a4a5a';
     ctx.lineWidth = 1;
     const tileSize = 32;
     for (let x = 0; x < size; x += tileSize) {
@@ -997,7 +1006,7 @@ class DungeonRenderer {
     group.add(crystalMesh);
 
     // Glow
-    const light = new THREE.PointLight(0xffd700, 0.5, T * 4, 2);
+    const light = new THREE.PointLight(0xffd700, 1.0, T * 6, 1.5);
     light.position.set(0, T * 0.3, 0);
     group.add(light);
 
