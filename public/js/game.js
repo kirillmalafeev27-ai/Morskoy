@@ -91,6 +91,8 @@ class Game {
     this.renderer = new DungeonRenderer(canvas, this.isCreepy);
     this.renderer.buildMaze(this.mazeGen);
     this.renderer.createPlayer(this.playerX, this.playerY);
+    // Snap camera to player immediately (no slow lerp on first frame)
+    this.renderer.updateCamera(this.playerX, this.playerY, true);
 
     // Create monster meshes
     this.monsters.forEach((m, i) => {

@@ -19,7 +19,11 @@ class DungeonRenderer {
 
     // Background color
     this.scene.background = new THREE.Color(isCreepy ? 0x050505 : 0x0a1628);
-    this.scene.fog = new THREE.Fog(isCreepy ? 0x050505 : 0x0a1628, 5, 18);
+    this.scene.fog = new THREE.Fog(isCreepy ? 0x050505 : 0x0a1628, 8, 35);
+
+    // Set initial camera position (will be updated in loop)
+    this.camera.position.set(2, 18, 12);
+    this.camera.lookAt(2, 0, 2);
 
     // Materials
     this._initMaterials();
@@ -135,26 +139,12 @@ class DungeonRenderer {
       }
     }
 
-    // Ceiling (large plane above)
-    const ceilGeo = new THREE.PlaneGeometry(maze.width * T + 10, maze.height * T + 10);
-    const ceilMat = new THREE.MeshStandardMaterial({
-      color: this.isCreepy ? 0x0a0808 : 0x1a2a3a,
-      roughness: 1,
-      side: THREE.DoubleSide,
-    });
-    const ceiling = new THREE.Mesh(ceilGeo, ceilMat);
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.set(
-      (maze.width * T) / 2 - T / 2,
-      this.WALL_HEIGHT + 0.1,
-      (maze.height * T) / 2 - T / 2
-    );
-    this.scene.add(ceiling);
+    // No ceiling - camera looks from above
 
-    // Tiny ambient light so it's not pitch black
+    // Ambient light - very dim to keep fog of war feel but enough to see walls nearby
     const ambient = new THREE.AmbientLight(
-      this.isCreepy ? 0x110808 : 0x0a1020,
-      this.isCreepy ? 0.05 : 0.15
+      this.isCreepy ? 0x221111 : 0x182838,
+      this.isCreepy ? 0.15 : 0.3
     );
     this.scene.add(ambient);
   }
@@ -169,16 +159,26 @@ class DungeonRenderer {
 
     // Player torch light
     this.playerLight = new THREE.PointLight(
-      this.isCreepy ? 0xff6600 : 0x88aaff,
-      this.isCreepy ? 1.5 : 1.2,
-      this.visibleRadius * T * 2.5,
-      2
+      this.isCreepy ? 0xff8833 : 0x99bbff,
+      this.isCreepy ? 2.5 : 2.0,
+      this.visibleRadius * T * 3,
+      1.5
     );
     this.playerLight.position.set(x * T, 2.5, y * T);
     this.playerLight.castShadow = true;
     this.playerLight.shadow.mapSize.width = 512;
     this.playerLight.shadow.mapSize.height = 512;
     this.scene.add(this.playerLight);
+
+    // Additional fill light from above the player
+    this.playerFillLight = new THREE.PointLight(
+      0xffffff,
+      0.5,
+      this.visibleRadius * T * 4,
+      2
+    );
+    this.playerFillLight.position.set(x * T, 8, y * T);
+    this.scene.add(this.playerFillLight);
   }
 
   updatePlayer(x, y) {
@@ -192,23 +192,30 @@ class DungeonRenderer {
     this.playerLight.position.x = this.playerMesh.position.x;
     this.playerLight.position.z = this.playerMesh.position.z;
 
+    if (this.playerFillLight) {
+      this.playerFillLight.position.x = this.playerMesh.position.x;
+      this.playerFillLight.position.z = this.playerMesh.position.z;
+      this.playerFillLight.distance = this.visibleRadius * T * 4;
+    }
+
     // Update light range based on visibility
-    this.playerLight.distance = this.visibleRadius * T * 2.5;
+    this.playerLight.distance = this.visibleRadius * T * 3;
   }
 
-  updateCamera(playerX, playerY) {
+  updateCamera(playerX, playerY, instant) {
     const T = this.TILE_SIZE;
     const targetX = playerX * T;
     const targetZ = playerY * T;
 
     // Angled top-down view
     const camTargetX = targetX;
-    const camTargetY = 18;
-    const camTargetZ = targetZ + 10;
+    const camTargetY = 20;
+    const camTargetZ = targetZ + 12;
 
-    this.camera.position.x += (camTargetX - this.camera.position.x) * 0.08;
-    this.camera.position.y += (camTargetY - this.camera.position.y) * 0.08;
-    this.camera.position.z += (camTargetZ - this.camera.position.z) * 0.08;
+    const lerp = instant ? 1.0 : 0.08;
+    this.camera.position.x += (camTargetX - this.camera.position.x) * lerp;
+    this.camera.position.y += (camTargetY - this.camera.position.y) * lerp;
+    this.camera.position.z += (camTargetZ - this.camera.position.z) * lerp;
 
     this.camera.lookAt(
       this.playerMesh.position.x,
@@ -407,6 +414,7 @@ class DungeonRenderer {
     this.baitMesh = null;
     this.playerMesh = null;
     this.playerLight = null;
+    this.playerFillLight = null;
   }
 
   _onResize() {
