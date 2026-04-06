@@ -205,17 +205,35 @@ class Game {
     const canvas = document.getElementById('game-canvas');
     if (this.renderer) this.renderer.dispose();
     this.renderer = new DungeonRenderer(canvas, this.isCreepy);
-    this.renderer.buildMaze(this.mazeGen);
-    this.renderer.createPlayer(this.playerX, this.playerY);
-    this.renderer.updateCamera(this.playerX, this.playerY, true);
 
-    this.monsters.forEach((m, i) => {
-      this.renderer.createMonster(m.x, m.y, i);
+    // Load 3D models, then build scene
+    const buildScene = () => {
+      this.renderer.buildMaze(this.mazeGen);
+      this.renderer.createPlayer(this.playerX, this.playerY);
+      this.renderer.updateCamera(this.playerX, this.playerY, true);
+
+      this.monsters.forEach((m, i) => {
+        this.renderer.createMonster(m.x, m.y, i);
+      });
+
+      this.treasures.forEach((t, i) => {
+        this.renderer.createTreasure(t.x, t.y, i);
+      });
+
+      this._finishInit();
+    };
+
+    // Try loading models, build scene when done (or on fail)
+    this.renderer.loadModels(() => {
+      buildScene();
     });
 
-    this.treasures.forEach((t, i) => {
-      this.renderer.createTreasure(t.x, t.y, i);
-    });
+    // Fallback: if models take too long, build with primitives after 3s
+    setTimeout(() => {
+      if (this.state === 'loading') {
+        buildScene();
+      }
+    }, 3000);
 
     // Init audio
     if (this.audio) this.audio.dispose();
@@ -236,6 +254,11 @@ class Game {
     this.revealTurns = 0;
     this.questionsAnswered = 0;
     this.questionsCorrect = 0;
+    this.state = 'loading';
+  }
+
+  _finishInit() {
+    if (this.state !== 'loading') return; // already initialized
     this.state = 'topic_select';
 
     // Start monsters

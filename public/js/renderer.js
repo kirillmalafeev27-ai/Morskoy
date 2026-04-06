@@ -1,5 +1,6 @@
 // Three.js 3D Renderer
 // Top-down angled view of dungeon with fog of war via lighting
+// Uses GLB models from LowPolyDungeon pack + post-processing
 
 class DungeonRenderer {
   constructor(canvas, isCreepy) {
@@ -7,6 +8,11 @@ class DungeonRenderer {
     this.isCreepy = isCreepy;
     this.TILE_SIZE = 2;
     this.WALL_HEIGHT = 3;
+
+    // Model cache
+    this.modelCache = {};
+    this.modelsLoaded = false;
+    this.loader = new THREE.GLTFLoader();
 
     // Scene setup
     this.scene = new THREE.Scene();
@@ -223,12 +229,84 @@ class DungeonRenderer {
     });
   }
 
+  loadModels(callback) {
+    const modelList = {
+      wall1: 'assets/models/Dungeon_Wall_Var1.glb',
+      wall2: 'assets/models/Dungeon_Wall_Var2.glb',
+      floor: 'assets/models/FloorTIle.glb',
+      hallway: 'assets/models/Dungeon_Straight.glb',
+      torch: 'assets/models/Torch_Wall.glb',
+      chest: 'assets/models/Chest.glb',
+      barrel: 'assets/models/Barrel_Closed.glb',
+      bone: 'assets/models/Bone.glb',
+      amphora: 'assets/models/Amphora.glb',
+      pillar: 'assets/models/Pillar.glb',
+      crystal: 'assets/models/CrystalBall.glb',
+    };
+
+    let loaded = 0;
+    const total = Object.keys(modelList).length;
+
+    for (const [key, path] of Object.entries(modelList)) {
+      this.loader.load(
+        path,
+        (gltf) => {
+          this.modelCache[key] = gltf.scene;
+          loaded++;
+          if (loaded >= total) {
+            this.modelsLoaded = true;
+            if (callback) callback();
+          }
+        },
+        undefined,
+        (err) => {
+          console.warn(`Failed to load model ${key}:`, err);
+          loaded++;
+          if (loaded >= total) {
+            this.modelsLoaded = true;
+            if (callback) callback();
+          }
+        }
+      );
+    }
+  }
+
+  _cloneModel(key, applyMaterial) {
+    const model = this.modelCache[key];
+    if (!model) return null;
+    const clone = model.clone();
+    clone.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        if (applyMaterial) {
+          child.material = applyMaterial;
+        }
+      }
+    });
+    return clone;
+  }
+
   buildMaze(maze) {
     this._clearScene();
 
     const T = this.TILE_SIZE;
     const wallGeo = new THREE.BoxGeometry(T, this.WALL_HEIGHT, T);
     const floorGeo = new THREE.PlaneGeometry(T, T);
+    const useModels = this.modelsLoaded;
+
+    // Determine model scale by checking first model bounds
+    let wallScale = 0.5; // default scale for LowPolyDungeon models
+    if (useModels && this.modelCache.wall1) {
+      const box = new THREE.Box3().setFromObject(this.modelCache.wall1);
+      const size = box.getSize(new THREE.Vector3());
+      if (size.x > 0) wallScale = T / Math.max(size.x, size.z);
+    }
+
+    // Decoration random seed per cell
+    const decorTypes = ['bone', 'amphora', 'barrel'];
+    let decorCount = 0;
+    const maxDecor = 30; // limit for performance
 
     for (let y = 0; y < maze.height; y++) {
       for (let x = 0; x < maze.width; x++) {
@@ -236,6 +314,19 @@ class DungeonRenderer {
         const posZ = y * T;
 
         if (maze.grid[y][x] === 0) {
+          // WALL
+          if (useModels && (this.modelCache.wall1 || this.modelCache.wall2)) {
+            const key = Math.random() > 0.5 ? 'wall2' : 'wall1';
+            const wallModel = this._cloneModel(key, this.wallMaterial);
+            if (wallModel) {
+              wallModel.scale.setScalar(wallScale);
+              wallModel.position.set(posX, 0, posZ);
+              this.scene.add(wallModel);
+              this.wallMeshes.push(wallModel);
+              continue;
+            }
+          }
+          // Fallback: procedural box
           const wall = new THREE.Mesh(wallGeo, this.wallMaterial);
           wall.position.set(posX, this.WALL_HEIGHT / 2, posZ);
           wall.castShadow = true;
@@ -243,12 +334,40 @@ class DungeonRenderer {
           this.scene.add(wall);
           this.wallMeshes.push(wall);
         } else {
-          const floor = new THREE.Mesh(floorGeo, this.floorMaterial);
-          floor.rotation.x = -Math.PI / 2;
-          floor.position.set(posX, 0, posZ);
-          floor.receiveShadow = true;
-          this.scene.add(floor);
-          this.floorMeshes.push(floor);
+          // FLOOR
+          if (useModels && this.modelCache.floor) {
+            const floorModel = this._cloneModel('floor', this.floorMaterial);
+            if (floorModel) {
+              floorModel.scale.setScalar(wallScale);
+              floorModel.position.set(posX, 0, posZ);
+              this.scene.add(floorModel);
+              this.floorMeshes.push(floorModel);
+            }
+          } else {
+            const floor = new THREE.Mesh(floorGeo, this.floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set(posX, 0, posZ);
+            floor.receiveShadow = true;
+            this.scene.add(floor);
+            this.floorMeshes.push(floor);
+          }
+
+          // Random decoration objects in corridors (sparse)
+          if (useModels && decorCount < maxDecor && Math.random() < 0.04) {
+            const decorKey = decorTypes[Math.floor(Math.random() * decorTypes.length)];
+            const decor = this._cloneModel(decorKey);
+            if (decor) {
+              decor.scale.setScalar(wallScale * 0.6);
+              decor.position.set(
+                posX + (Math.random() - 0.5) * T * 0.4,
+                0,
+                posZ + (Math.random() - 0.5) * T * 0.4
+              );
+              decor.rotation.y = Math.random() * Math.PI * 2;
+              this.scene.add(decor);
+              decorCount++;
+            }
+          }
         }
       }
     }
@@ -322,23 +441,27 @@ class DungeonRenderer {
         const posX = x * T;
         const posZ = y * T;
 
-        // Torch bracket
-        const bracketGeo = new THREE.CylinderGeometry(0.04, 0.06, 0.3, 6);
-        const bracketMat = new THREE.MeshStandardMaterial({
-          color: 0x444444, roughness: 0.9, metalness: 0.3
-        });
-        const bracket = new THREE.Mesh(bracketGeo, bracketMat);
-        bracket.position.set(posX, 2.0, posZ);
-        this.scene.add(bracket);
+        // Torch model or fallback
+        let flame;
+        if (this.modelsLoaded && this.modelCache.torch) {
+          const torchModel = this._cloneModel('torch');
+          if (torchModel) {
+            const tScale = T / 4;
+            torchModel.scale.setScalar(tScale);
+            torchModel.position.set(posX, 1.5, posZ);
+            torchModel.rotation.y = Math.random() * Math.PI * 2;
+            this.scene.add(torchModel);
+          }
+        }
 
-        // Flame glow (small emissive sphere)
+        // Flame glow (always add for lighting effect)
         const flameGeo = new THREE.SphereGeometry(0.1, 6, 6);
         const flameMat = new THREE.MeshBasicMaterial({
           color: this.isCreepy ? 0xff4400 : 0xffaa44,
           transparent: true,
           opacity: 0.8,
         });
-        const flame = new THREE.Mesh(flameGeo, flameMat);
+        flame = new THREE.Mesh(flameGeo, flameMat);
         flame.position.set(posX, 2.2, posZ);
         this.scene.add(flame);
 
@@ -853,15 +976,28 @@ class DungeonRenderer {
     const T = this.TILE_SIZE;
     const group = new THREE.Group();
 
-    // Diamond shape
-    const geo = new THREE.OctahedronGeometry(T * 0.2, 0);
-    const mesh = new THREE.Mesh(geo, this.treasureMaterial);
-    mesh.position.y = T * 0.3;
-    mesh.castShadow = true;
-    group.add(mesh);
+    // Use Chest model if available
+    if (this.modelsLoaded && this.modelCache.chest) {
+      const chestModel = this._cloneModel('chest');
+      if (chestModel) {
+        const box = new THREE.Box3().setFromObject(chestModel);
+        const size = box.getSize(new THREE.Vector3());
+        const scale = (T * 0.4) / Math.max(size.x, size.z);
+        chestModel.scale.setScalar(scale);
+        chestModel.position.y = 0;
+        group.add(chestModel);
+      }
+    }
+
+    // Always add a crystal on top / glow indicator
+    const crystalGeo = new THREE.OctahedronGeometry(T * 0.12, 0);
+    const crystalMesh = new THREE.Mesh(crystalGeo, this.treasureMaterial);
+    crystalMesh.position.y = T * 0.35;
+    crystalMesh.castShadow = true;
+    group.add(crystalMesh);
 
     // Glow
-    const light = new THREE.PointLight(0xffd700, 0.4, T * 3, 2);
+    const light = new THREE.PointLight(0xffd700, 0.5, T * 4, 2);
     light.position.set(0, T * 0.3, 0);
     group.add(light);
 
