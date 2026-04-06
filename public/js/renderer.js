@@ -18,12 +18,21 @@ class DungeonRenderer {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     // Background color
-    this.scene.background = new THREE.Color(isCreepy ? 0x050505 : 0x0a1628);
-    this.scene.fog = new THREE.Fog(isCreepy ? 0x050505 : 0x0a1628, 8, 35);
+    this.bgColor = isCreepy ? 0x050505 : 0x0a1628;
+    this.scene.background = new THREE.Color(this.bgColor);
+    this.scene.fog = new THREE.Fog(this.bgColor, 8, 35);
 
     // Set initial camera position
     this.camera.position.set(2, 20, 14);
     this.camera.lookAt(2, 0, 2);
+
+    // Post-processing
+    this.composer = null;
+    this._initPostProcessing();
+
+    // Particles
+    this.dustParticles = null;
+    this.torchParticles = [];
 
     // Materials
     this._initMaterials();
@@ -58,28 +67,135 @@ class DungeonRenderer {
     window.addEventListener('resize', () => this._onResize());
   }
 
+  _initPostProcessing() {
+    try {
+      if (!THREE.EffectComposer) return; // CDN not loaded
+
+      this.composer = new THREE.EffectComposer(this.renderer);
+
+      // Render pass
+      const renderPass = new THREE.RenderPass(this.scene, this.camera);
+      this.composer.addPass(renderPass);
+
+      // Bloom - makes lights glow beautifully
+      const bloomPass = new THREE.UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        this.isCreepy ? 0.8 : 0.4,  // strength
+        0.4,                          // radius
+        0.85                          // threshold
+      );
+      this.composer.addPass(bloomPass);
+      this.bloomPass = bloomPass;
+
+      // Vignette - darkens edges, focuses attention on center
+      const vignetteShader = {
+        uniforms: {
+          tDiffuse: { value: null },
+          darkness: { value: this.isCreepy ? 1.8 : 1.0 },
+          offset: { value: 1.0 },
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D tDiffuse;
+          uniform float darkness;
+          uniform float offset;
+          varying vec2 vUv;
+          void main() {
+            vec4 texel = texture2D(tDiffuse, vUv);
+            vec2 uv = (vUv - vec2(0.5)) * vec2(offset);
+            float vignette = 1.0 - dot(uv, uv);
+            vignette = clamp(pow(vignette, darkness), 0.0, 1.0);
+            gl_FragColor = vec4(texel.rgb * vignette, texel.a);
+          }
+        `
+      };
+      const vignettePass = new THREE.ShaderPass(vignetteShader);
+      this.composer.addPass(vignettePass);
+
+      // Film grain for creepy mode
+      if (this.isCreepy) {
+        const grainShader = {
+          uniforms: {
+            tDiffuse: { value: null },
+            time: { value: 0 },
+            amount: { value: 0.06 },
+          },
+          vertexShader: `
+            varying vec2 vUv;
+            void main() {
+              vUv = uv;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform sampler2D tDiffuse;
+            uniform float time;
+            uniform float amount;
+            varying vec2 vUv;
+            float random(vec2 co) {
+              return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
+            }
+            void main() {
+              vec4 color = texture2D(tDiffuse, vUv);
+              float grain = random(vUv + time) * amount;
+              color.rgb += grain - amount * 0.5;
+              gl_FragColor = color;
+            }
+          `
+        };
+        this.grainPass = new THREE.ShaderPass(grainShader);
+        this.composer.addPass(this.grainPass);
+      }
+    } catch (e) {
+      console.warn('Post-processing unavailable:', e);
+      this.composer = null;
+    }
+  }
+
   _initMaterials() {
+    // Generate procedural stone texture
+    const stoneTexture = this._generateStoneTexture(this.isCreepy);
+    const floorTexture = this._generateFloorTexture(this.isCreepy);
+
     if (this.isCreepy) {
       this.wallMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2a1a0a,
-        roughness: 0.9,
-        metalness: 0.1,
+        map: stoneTexture,
+        color: 0x3a2a1a,
+        roughness: 0.92,
+        metalness: 0.05,
+        bumpMap: stoneTexture,
+        bumpScale: 0.05,
       });
       this.floorMaterial = new THREE.MeshStandardMaterial({
-        color: 0x1a1210,
+        map: floorTexture,
+        color: 0x221a14,
         roughness: 0.95,
         metalness: 0.0,
+        bumpMap: floorTexture,
+        bumpScale: 0.03,
       });
     } else {
       this.wallMaterial = new THREE.MeshStandardMaterial({
-        color: 0x3a5a7a,
-        roughness: 0.7,
-        metalness: 0.2,
+        map: stoneTexture,
+        color: 0x4a6a8a,
+        roughness: 0.75,
+        metalness: 0.15,
+        bumpMap: stoneTexture,
+        bumpScale: 0.04,
       });
       this.floorMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2a3a4a,
+        map: floorTexture,
+        color: 0x3a4a5a,
         roughness: 0.8,
         metalness: 0.1,
+        bumpMap: floorTexture,
+        bumpScale: 0.02,
       });
     }
 
@@ -142,6 +258,132 @@ class DungeonRenderer {
       this.isCreepy ? 0.15 : 0.3
     );
     this.scene.add(ambient);
+
+    // Floating dust particles in the whole maze
+    this._createDustParticles(maze);
+
+    // Wall-mounted torches at intersections
+    this._createTorches(maze);
+  }
+
+  _createDustParticles(maze) {
+    const T = this.TILE_SIZE;
+    const count = 300;
+    const geo = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = Math.random() * maze.width * T;
+      positions[i * 3 + 1] = 0.2 + Math.random() * 2.5;
+      positions[i * 3 + 2] = Math.random() * maze.height * T;
+      sizes[i] = 0.02 + Math.random() * 0.04;
+    }
+
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const mat = new THREE.PointsMaterial({
+      color: this.isCreepy ? 0x886644 : 0x8899bb,
+      size: 0.06,
+      transparent: true,
+      opacity: 0.3,
+      sizeAttenuation: true,
+      depthWrite: false,
+    });
+
+    this.dustParticles = new THREE.Points(geo, mat);
+    this.scene.add(this.dustParticles);
+  }
+
+  _createTorches(maze) {
+    const T = this.TILE_SIZE;
+    this.torchParticles = [];
+    let torchCount = 0;
+
+    // Place torches at some corridor junctions (not too many for perf)
+    for (let y = 2; y < maze.height - 2; y += 4) {
+      for (let x = 2; x < maze.width - 2; x += 4) {
+        if (maze.grid[y][x] !== 1) continue;
+
+        // Check if it's near a wall
+        let nearWall = false;
+        const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+        for (const [dx, dy] of dirs) {
+          if (maze.grid[y+dy] && maze.grid[y+dy][x+dx] === 0) {
+            nearWall = true;
+            break;
+          }
+        }
+        if (!nearWall) continue;
+        if (torchCount > 30) break;
+
+        // Torch = point light + small emissive mesh + particle emitter info
+        const posX = x * T;
+        const posZ = y * T;
+
+        // Torch bracket
+        const bracketGeo = new THREE.CylinderGeometry(0.04, 0.06, 0.3, 6);
+        const bracketMat = new THREE.MeshStandardMaterial({
+          color: 0x444444, roughness: 0.9, metalness: 0.3
+        });
+        const bracket = new THREE.Mesh(bracketGeo, bracketMat);
+        bracket.position.set(posX, 2.0, posZ);
+        this.scene.add(bracket);
+
+        // Flame glow (small emissive sphere)
+        const flameGeo = new THREE.SphereGeometry(0.1, 6, 6);
+        const flameMat = new THREE.MeshBasicMaterial({
+          color: this.isCreepy ? 0xff4400 : 0xffaa44,
+          transparent: true,
+          opacity: 0.8,
+        });
+        const flame = new THREE.Mesh(flameGeo, flameMat);
+        flame.position.set(posX, 2.2, posZ);
+        this.scene.add(flame);
+
+        // Torch light (dim)
+        const torchLight = new THREE.PointLight(
+          this.isCreepy ? 0xff4400 : 0xffaa44,
+          0.3, T * 3, 2
+        );
+        torchLight.position.set(posX, 2.3, posZ);
+        this.scene.add(torchLight);
+
+        this.torchParticles.push({
+          flame, light: torchLight,
+          x: posX, z: posZ, offset: Math.random() * Math.PI * 2
+        });
+        torchCount++;
+      }
+    }
+  }
+
+  _updateParticles() {
+    const time = this.clock.getElapsedTime();
+
+    // Dust drifting
+    if (this.dustParticles) {
+      const pos = this.dustParticles.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        let y = pos.getY(i);
+        y += Math.sin(time * 0.5 + i * 0.1) * 0.002;
+        pos.setX(i, pos.getX(i) + Math.sin(time * 0.3 + i) * 0.003);
+        if (y > 2.8) y = 0.2;
+        if (y < 0.1) y = 2.7;
+        pos.setY(i, y);
+      }
+      pos.needsUpdate = true;
+    }
+
+    // Torch flicker
+    for (const torch of this.torchParticles) {
+      const flicker = 0.7 + Math.sin(time * 8 + torch.offset) * 0.15
+                     + Math.sin(time * 13 + torch.offset * 2) * 0.1;
+      torch.light.intensity = 0.3 * flicker;
+      torch.flame.scale.setScalar(0.8 + Math.sin(time * 6 + torch.offset) * 0.3);
+      torch.flame.material.opacity = 0.5 + flicker * 0.3;
+    }
   }
 
   createPlayer(x, y) {
@@ -374,6 +616,117 @@ class DungeonRenderer {
     return group;
   }
 
+  _generateStoneTexture(isCreepy) {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    // Base color
+    ctx.fillStyle = isCreepy ? '#3a2818' : '#4a5a6a';
+    ctx.fillRect(0, 0, size, size);
+
+    // Stone block lines
+    ctx.strokeStyle = isCreepy ? '#1a1008' : '#3a4a5a';
+    ctx.lineWidth = 2;
+
+    // Horizontal mortar lines
+    for (let y = 0; y < size; y += 32) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(size, y);
+      ctx.stroke();
+    }
+
+    // Vertical mortar lines (offset every other row)
+    for (let y = 0; y < size; y += 32) {
+      const offset = ((y / 32) % 2) * 16;
+      for (let x = offset; x < size; x += 32) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + 32);
+        ctx.stroke();
+      }
+    }
+
+    // Noise/grime
+    for (let i = 0; i < 500; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const brightness = Math.random() * 30 - 15;
+      const b = isCreepy ? 30 + brightness : 70 + brightness;
+      ctx.fillStyle = `rgb(${b},${b * 0.8},${b * 0.7})`;
+      ctx.fillRect(x, y, 2, 2);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(1, 1);
+    return texture;
+  }
+
+  _generateFloorTexture(isCreepy) {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    // Base
+    ctx.fillStyle = isCreepy ? '#1a1410' : '#2a3440';
+    ctx.fillRect(0, 0, size, size);
+
+    // Floor tile grid
+    ctx.strokeStyle = isCreepy ? '#0d0a08' : '#1a2430';
+    ctx.lineWidth = 1;
+    const tileSize = 32;
+    for (let x = 0; x < size; x += tileSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, size);
+      ctx.stroke();
+    }
+    for (let y = 0; y < size; y += tileSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(size, y);
+      ctx.stroke();
+    }
+
+    // Cracks and dirt
+    for (let i = 0; i < 8; i++) {
+      ctx.strokeStyle = isCreepy ? '#0a0804' : '#1a2a35';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      let x = Math.random() * size;
+      let y = Math.random() * size;
+      ctx.moveTo(x, y);
+      for (let j = 0; j < 5; j++) {
+        x += (Math.random() - 0.5) * 20;
+        y += (Math.random() - 0.5) * 20;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Subtle stains
+    for (let i = 0; i < 300; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const a = Math.random() * 0.1;
+      ctx.fillStyle = isCreepy ? `rgba(20,10,5,${a})` : `rgba(10,20,30,${a})`;
+      ctx.fillRect(x, y, 3, 3);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(1, 1);
+    return texture;
+  }
+
   _distortGeometry(geo, amount) {
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
@@ -569,7 +922,19 @@ class DungeonRenderer {
   }
 
   render() {
-    this.renderer.render(this.scene, this.camera);
+    // Update particles every frame
+    this._updateParticles();
+
+    // Update grain time uniform
+    if (this.grainPass) {
+      this.grainPass.uniforms.time.value = this.clock.getElapsedTime();
+    }
+
+    if (this.composer) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   startLoop(updateCallback) {
@@ -615,6 +980,9 @@ class DungeonRenderer {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    if (this.composer) {
+      this.composer.setSize(window.innerWidth, window.innerHeight);
+    }
   }
 
   dispose() {
