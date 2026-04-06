@@ -26,7 +26,8 @@ class DungeonRenderer {
     // Background color
     this.bgColor = isCreepy ? 0x050505 : 0x0a1628;
     this.scene.background = new THREE.Color(this.bgColor);
-    this.scene.fog = new THREE.Fog(this.bgColor, 15, 60);
+    // Fog matches visible radius: near=player area, far=edge of vision
+    this.scene.fog = new THREE.Fog(this.bgColor, 6, 22);
 
     // Set initial camera position
     this.camera.position.set(2, 20, 14);
@@ -97,7 +98,7 @@ class DungeonRenderer {
       const vignetteShader = {
         uniforms: {
           tDiffuse: { value: null },
-          darkness: { value: this.isCreepy ? 1.0 : 0.6 },
+          darkness: { value: this.isCreepy ? 1.2 : 0.8 },
           offset: { value: 1.0 },
         },
         vertexShader: `
@@ -295,19 +296,18 @@ class DungeonRenderer {
     const floorGeo = new THREE.PlaneGeometry(T, T);
     const useModels = this.modelsLoaded;
 
-    // Determine model scale by checking first model bounds
-    let wallScale = 0.5; // default scale for LowPolyDungeon models
-    if (useModels && this.modelCache.wall1) {
-      const box = new THREE.Box3().setFromObject(this.modelCache.wall1);
+    // Determine model scale for decorations/floor
+    let modelScale = 0.5;
+    if (useModels && this.modelCache.floor) {
+      const box = new THREE.Box3().setFromObject(this.modelCache.floor);
       const size = box.getSize(new THREE.Vector3());
-      console.log('Wall model native size:', size.x, size.y, size.z, '-> wallScale:', size.x > 0 ? T / Math.max(size.x, size.z) : wallScale);
-      if (size.x > 0) wallScale = T / Math.max(size.x, size.z);
+      if (size.x > 0) modelScale = T / Math.max(size.x, size.z);
     }
 
     // Decoration random seed per cell
     const decorTypes = ['bone', 'amphora', 'barrel'];
     let decorCount = 0;
-    const maxDecor = 30; // limit for performance
+    const maxDecor = 30;
 
     for (let y = 0; y < maze.height; y++) {
       for (let x = 0; x < maze.width; x++) {
@@ -315,19 +315,7 @@ class DungeonRenderer {
         const posZ = y * T;
 
         if (maze.grid[y][x] === 0) {
-          // WALL
-          if (useModels && (this.modelCache.wall1 || this.modelCache.wall2)) {
-            const key = Math.random() > 0.5 ? 'wall2' : 'wall1';
-            const wallModel = this._cloneModel(key); // keep original model materials
-            if (wallModel) {
-              wallModel.scale.setScalar(wallScale);
-              wallModel.position.set(posX, 0, posZ);
-              this.scene.add(wallModel);
-              this.wallMeshes.push(wallModel);
-              continue;
-            }
-          }
-          // Fallback: procedural box
+          // WALL - always use solid BoxGeometry for reliable gap-free walls
           const wall = new THREE.Mesh(wallGeo, this.wallMaterial);
           wall.position.set(posX, this.WALL_HEIGHT / 2, posZ);
           wall.castShadow = true;
@@ -336,29 +324,19 @@ class DungeonRenderer {
           this.wallMeshes.push(wall);
         } else {
           // FLOOR
-          if (useModels && this.modelCache.floor) {
-            const floorModel = this._cloneModel('floor'); // keep original model materials
-            if (floorModel) {
-              floorModel.scale.setScalar(wallScale);
-              floorModel.position.set(posX, 0, posZ);
-              this.scene.add(floorModel);
-              this.floorMeshes.push(floorModel);
-            }
-          } else {
-            const floor = new THREE.Mesh(floorGeo, this.floorMaterial);
-            floor.rotation.x = -Math.PI / 2;
-            floor.position.set(posX, 0, posZ);
-            floor.receiveShadow = true;
-            this.scene.add(floor);
-            this.floorMeshes.push(floor);
-          }
+          const floor = new THREE.Mesh(floorGeo, this.floorMaterial);
+          floor.rotation.x = -Math.PI / 2;
+          floor.position.set(posX, 0, posZ);
+          floor.receiveShadow = true;
+          this.scene.add(floor);
+          this.floorMeshes.push(floor);
 
           // Random decoration objects in corridors (sparse)
           if (useModels && decorCount < maxDecor && Math.random() < 0.04) {
             const decorKey = decorTypes[Math.floor(Math.random() * decorTypes.length)];
             const decor = this._cloneModel(decorKey);
             if (decor) {
-              decor.scale.setScalar(wallScale * 0.6);
+              decor.scale.setScalar(modelScale * 0.6);
               decor.position.set(
                 posX + (Math.random() - 0.5) * T * 0.4,
                 0,
@@ -373,19 +351,12 @@ class DungeonRenderer {
       }
     }
 
+    // Minimal ambient - fog of war means most light comes from player
     const ambient = new THREE.AmbientLight(
-      this.isCreepy ? 0x553322 : 0x334466,
-      this.isCreepy ? 0.6 : 0.8
+      this.isCreepy ? 0x221111 : 0x182838,
+      this.isCreepy ? 0.08 : 0.12
     );
     this.scene.add(ambient);
-
-    // Directional light from above for general visibility
-    const dirLight = new THREE.DirectionalLight(
-      this.isCreepy ? 0x442211 : 0x556688,
-      this.isCreepy ? 0.3 : 0.4
-    );
-    dirLight.position.set(0, 30, 0);
-    this.scene.add(dirLight);
 
     // Floating dust particles in the whole maze
     this._createDustParticles(maze);
@@ -455,7 +426,9 @@ class DungeonRenderer {
         if (this.modelsLoaded && this.modelCache.torch) {
           const torchModel = this._cloneModel('torch');
           if (torchModel) {
-            const tScale = T / 4;
+            const box = new THREE.Box3().setFromObject(torchModel);
+            const tSize = box.getSize(new THREE.Vector3());
+            const tScale = (T * 0.5) / Math.max(tSize.x, tSize.z, 0.01);
             torchModel.scale.setScalar(tScale);
             torchModel.position.set(posX, 1.5, posZ);
             torchModel.rotation.y = Math.random() * Math.PI * 2;
@@ -526,20 +499,23 @@ class DungeonRenderer {
     this.playerMesh.castShadow = true;
     this.scene.add(this.playerMesh);
 
+    // Main player torch - illuminates exactly the visible radius
+    const lightRange = (this.visibleRadius + 0.5) * T;
     this.playerLight = new THREE.PointLight(
       this.isCreepy ? 0xff8833 : 0x99bbff,
-      this.isCreepy ? 4.0 : 3.5,
-      this.visibleRadius * T * 5,
-      1.2
+      this.isCreepy ? 2.0 : 1.8,
+      lightRange * 2,
+      1.5
     );
-    this.playerLight.position.set(x * T, 3, y * T);
+    this.playerLight.position.set(x * T, 2.5, y * T);
     this.playerLight.castShadow = true;
     this.playerLight.shadow.mapSize.width = 512;
     this.playerLight.shadow.mapSize.height = 512;
     this.scene.add(this.playerLight);
 
-    this.playerFillLight = new THREE.PointLight(0xffffff, 1.0, this.visibleRadius * T * 6, 1.5);
-    this.playerFillLight.position.set(x * T, 10, y * T);
+    // Fill light from above - softer, matches visible radius
+    this.playerFillLight = new THREE.PointLight(0xffffff, 0.4, lightRange * 2.5, 1.8);
+    this.playerFillLight.position.set(x * T, 8, y * T);
     this.scene.add(this.playerFillLight);
   }
 
@@ -553,13 +529,15 @@ class DungeonRenderer {
     this.playerLight.position.x = this.playerMesh.position.x;
     this.playerLight.position.z = this.playerMesh.position.z;
 
+    // Light range tracks visibleRadius (expands with Artikel bonus)
+    const lightRange = (this.visibleRadius + 0.5) * T;
     if (this.playerFillLight) {
       this.playerFillLight.position.x = this.playerMesh.position.x;
       this.playerFillLight.position.z = this.playerMesh.position.z;
-      this.playerFillLight.distance = this.visibleRadius * T * 6;
+      this.playerFillLight.distance = lightRange * 2.5;
     }
 
-    this.playerLight.distance = this.visibleRadius * T * 5;
+    this.playerLight.distance = lightRange * 2;
 
     // Gentle player bob
     const time = this.clock.getElapsedTime();
@@ -1054,10 +1032,20 @@ class DungeonRenderer {
 
   setVisibleRadius(radius) {
     this.visibleRadius = radius;
+    this._updateFogForRadius();
   }
 
   resetVisibleRadius() {
     this.visibleRadius = this.baseVisibleRadius;
+    this._updateFogForRadius();
+  }
+
+  _updateFogForRadius() {
+    // Expand/contract fog to match visible radius
+    const T = this.TILE_SIZE;
+    const range = (this.visibleRadius + 0.5) * T;
+    this.scene.fog.near = range * 0.6;
+    this.scene.fog.far = range * 2.2;
   }
 
   isInVisibleRange(playerX, playerY, cellX, cellY) {
