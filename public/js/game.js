@@ -194,6 +194,7 @@ class Game {
       const cell = monsterCells[i + this.totalTreasures];
       if (!cell) continue;
       const monster = new Monster(cell.x, cell.y, this.mazeGen);
+      monster.moveInterval = lvlCfg.monsterSpeed;
       this.monsters.push(monster);
     }
 
@@ -418,9 +419,6 @@ class Game {
 
     this.audio.playStep();
     this._checkTreasures();
-
-    // Monsters take one step per player move
-    this.monsters.forEach(m => m.doStep());
 
     for (const m of this.monsters) {
       if (m.x === this.playerX && m.y === this.playerY) {
