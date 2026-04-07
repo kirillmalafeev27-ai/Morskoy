@@ -13,13 +13,19 @@ const anthropic = new Anthropic();
 
 // Generate grammar exercises via Claude API
 app.post('/api/generate-questions', async (req, res) => {
-  const { level, lexicalTopic, grammarTopic, isWortstellung, count } = req.body;
+  const { level, lexicalTopic, grammarTopic, isWortstellung, count, exclude } = req.body;
 
   if (!level || !grammarTopic) {
     return res.status(400).json({ error: 'level and grammarTopic are required' });
   }
 
-  const questionsCount = count || 3;
+  const questionsCount = count || 8;
+
+  // Build exclusion instruction if we have previously used questions
+  let excludeInstruction = '';
+  if (exclude && exclude.length > 0) {
+    excludeInstruction = `\n\nВАЖНО: Следующие предложения уже были использованы. НЕ повторяй их и НЕ создавай похожие. Придумай ПОЛНОСТЬЮ НОВЫЕ предложения:\n${exclude.map(t => `- "${t}"`).join('\n')}`;
+  }
 
   let taskDescription;
   if (isWortstellung) {
@@ -29,18 +35,28 @@ ${lexicalTopic ? `Лексическая тема: ${lexicalTopic}. Все пр�
 Формат: в поле "display" даны слова/фразы через " / " в ПЕРЕМЕШАННОМ (случайном) порядке — НЕ в правильном!
 Игрок должен угадать правильный порядок из 4 вариантов.
 Инструкция (text) должна быть на русском, варианты ответов — полные немецкие предложения.
-ВАЖНО: порядок слов в "display" НЕ должен совпадать с правильным ответом! Перемешай их.`;
+ВАЖНО: порядок слов в "display" ОБЯЗАН быть СЛУЧАЙНЫМ и НЕ должен совпадать с правильным ответом! Обязательно перемешай слова.
+Каждое упражнение должно использовать РАЗНЫЕ предложения. Не повторяйся!`;
   } else {
     taskDescription = `Создай ${questionsCount} упражнений по немецкой грамматике.
 Грамматическая тема: ${grammarTopic}.
 ${lexicalTopic ? `Лексическая тема: ${lexicalTopic}. Все предложения должны использовать слова из этой темы.` : ''}
 Формат: предложение с пропуском ___, нужно выбрать правильный вариант из 4.
-Инструкция (text) на русском, display — немецкое предложение с пропуском, варианты — на немецком.`;
+Инструкция (text) на русском, display — немецкое предложение с пропуском, варианты — на немецком.
+Каждое упражнение должно использовать РАЗНЫЕ предложения. Не повторяйся!`;
   }
 
   const prompt = `${taskDescription}
 
 Уровень CEFR: ${level}. Строго соблюдай уровень! Не используй грамматику и лексику выше ${level}.
+${excludeInstruction}
+
+КРИТИЧЕСКИЕ ПРАВИЛА:
+1. Правильный ответ ДОЛЖЕН быть грамматически БЕЗУПРЕЧНЫМ. Тройная проверка!
+2. Неправильные варианты должны быть ПРАВДОПОДОБНЫМИ, но содержать ЯСНУЮ грамматическую ошибку.
+3. Не должно быть двух правильных вариантов. Только ОДИН правильный.
+4. correct — индекс правильного ответа (0-3). Распределяй правильный ответ РАВНОМЕРНО по позициям 0, 1, 2, 3.
+5. Все ${questionsCount} предложений должны быть УНИКАЛЬНЫМИ и РАЗНООБРАЗНЫМИ.
 
 Ответь ТОЛЬКО валидным JSON-массивом без markdown, без пояснений. Формат:
 [
@@ -50,15 +66,12 @@ ${lexicalTopic ? `Лексическая тема: ${lexicalTopic}. Все пр�
     "options": ["вариант1", "вариант2", "вариант3", "вариант4"],
     "correct": 0
   }
-]
-
-correct — индекс правильного ответа (0-3). Правильный ответ должен быть НА РАЗНЫХ позициях (не всегда 0).
-Все 4 варианта должны быть правдоподобными, но только один правильный.`;
+]`;
 
   try {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
     });
 

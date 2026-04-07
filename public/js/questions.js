@@ -51,24 +51,28 @@ class QuestionManager {
     this.level = level || 'A2';
     this.lexicalTopic = null;
     this.questionCache = {}; // key: slotId -> array of questions
-    this.fetching = {}; // key: slotId -> boolean (in-flight request)
-    this.slots = []; // configured slots with grammar topics
+    this.usedTexts = {};     // key: slotId -> Set of used question texts (prevent repeats)
+    this.fetchQueue = {};    // key: slotId -> number of pending fetches
+    this.slots = [];
   }
 
   setLevel(level) {
     this.level = level;
     this.questionCache = {};
+    this.usedTexts = {};
   }
 
   setLexicalTopic(topic) {
     this.lexicalTopic = topic;
     this.questionCache = {};
+    this.usedTexts = {};
   }
 
-  // Configure slots: array of { slotDef, grammarTopic }
   configureSlots(slotConfigs) {
     this.slots = slotConfigs;
     this.questionCache = {};
+    this.usedTexts = {};
+    this.fetchQueue = {};
   }
 
   // Pre-fetch questions for all configured slots
@@ -86,8 +90,8 @@ class QuestionManager {
     if (this.questionCache[slotId] && this.questionCache[slotId].length > 0) {
       const q = this.questionCache[slotId].shift();
       // Refetch in background if running low
-      if (this.questionCache[slotId].length <= 1) {
-        this._fetchForSlot(slotId); // fire and forget
+      if (this.questionCache[slotId].length <= 3) {
+        this._fetchForSlot(slotId);
       }
       return this._formatQuestion(q, slotConfig);
     }
@@ -104,9 +108,11 @@ class QuestionManager {
     return this._fallbackQuestion(slotConfig);
   }
 
-  // Called after correct answer — immediately fetch a replacement question
+  // Called after correct answer — fetch replacement in background
   onCorrectAnswer(slotId) {
-    this._fetchForSlot(slotId); // fire and forget
+    if (!this.questionCache[slotId] || this.questionCache[slotId].length <= 5) {
+      this._fetchForSlot(slotId);
+    }
   }
 
   // Shuffle all cached questions (call on game restart / new game)
@@ -120,14 +126,21 @@ class QuestionManager {
         }
       }
     }
+    // Clear used texts on restart so questions can appear again
+    this.usedTexts = {};
   }
 
   async _fetchForSlot(slotId) {
-    if (this.fetching[slotId]) return;
-    this.fetching[slotId] = true;
+    // Allow max 2 concurrent fetches per slot
+    if (!this.fetchQueue[slotId]) this.fetchQueue[slotId] = 0;
+    if (this.fetchQueue[slotId] >= 2) return;
+    this.fetchQueue[slotId]++;
 
     const slotConfig = this.slots.find(s => s.slotDef.id === slotId);
-    if (!slotConfig) { this.fetching[slotId] = false; return; }
+    if (!slotConfig) { this.fetchQueue[slotId]--; return; }
+
+    // Build list of used texts to send as exclusion
+    const used = this.usedTexts[slotId] ? Array.from(this.usedTexts[slotId]).slice(-20) : [];
 
     try {
       const resp = await fetch('/api/generate-questions', {
@@ -138,7 +151,8 @@ class QuestionManager {
           lexicalTopic: this.lexicalTopic,
           grammarTopic: slotConfig.grammarTopic,
           isWortstellung: slotConfig.slotDef.isWortstellung || false,
-          count: 4,
+          count: 8,
+          exclude: used,
         }),
       });
 
@@ -147,8 +161,17 @@ class QuestionManager {
 
       if (data.questions && data.questions.length > 0) {
         if (!this.questionCache[slotId]) this.questionCache[slotId] = [];
-        // Shuffle new questions before adding to cache
-        const newQs = data.questions;
+        if (!this.usedTexts[slotId]) this.usedTexts[slotId] = new Set();
+
+        // Filter out questions we've already seen
+        const newQs = data.questions.filter(q => !this.usedTexts[slotId].has(q.display));
+
+        // Track these as used
+        for (const q of newQs) {
+          this.usedTexts[slotId].add(q.display);
+        }
+
+        // Shuffle new questions
         for (let i = newQs.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [newQs[i], newQs[j]] = [newQs[j], newQs[i]];
@@ -159,7 +182,7 @@ class QuestionManager {
       console.warn(`Failed to fetch questions for slot ${slotId}:`, err);
     }
 
-    this.fetching[slotId] = false;
+    this.fetchQueue[slotId]--;
   }
 
   _formatQuestion(rawQ, slotConfig) {
