@@ -291,6 +291,51 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // ===== PINCH TO RESIZE QUESTION PANEL (mobile) =====
+  (function() {
+    const panel = document.getElementById('question-panel');
+    let baseScale = 1;
+    let startDist = 0;
+    let startScale = 1;
+    const MIN_SCALE = 0.6;
+    const MAX_SCALE = 1.4;
+
+    // Persist scale in sessionStorage
+    const saved = sessionStorage.getItem('questionPanelScale');
+    if (saved) {
+      baseScale = parseFloat(saved);
+      panel.style.transform = `translateX(-50%) scale(${baseScale})`;
+      panel.style.transformOrigin = 'bottom center';
+    }
+
+    function getDist(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    panel.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        startDist = getDist(e.touches);
+        startScale = baseScale;
+      }
+    }, { passive: true });
+
+    panel.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        const dist = getDist(e.touches);
+        const ratio = dist / startDist;
+        baseScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, startScale * ratio));
+        panel.style.transform = `translateX(-50%) scale(${baseScale})`;
+        panel.style.transformOrigin = 'bottom center';
+      }
+    }, { passive: true });
+
+    panel.addEventListener('touchend', () => {
+      sessionStorage.setItem('questionPanelScale', baseScale.toString());
+    }, { passive: true });
+  })();
+
   // ===== WIN/LOSE SCREENS =====
   document.getElementById('win-next').addEventListener('click', () => game.nextLevel());
 
