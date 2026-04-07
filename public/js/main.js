@@ -252,6 +252,13 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBtn.addEventListener('click', handler);
   }
 
+  // ===== DIRECTION BUTTONS =====
+  document.querySelectorAll('.dir-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      game.movePlayer(btn.dataset.dir);
+    });
+  });
+
   // ===== IN-GAME KEYBOARD =====
   document.addEventListener('keydown', (e) => {
     if (game.state === 'direction_select') {
