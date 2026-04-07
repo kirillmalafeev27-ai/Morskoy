@@ -19,7 +19,7 @@ app.post('/api/generate-questions', async (req, res) => {
     return res.status(400).json({ error: 'level and grammarTopic are required' });
   }
 
-  const questionsCount = count || 8;
+  const questionsCount = count || 12;
 
   // Build exclusion instruction if we have previously used questions
   let excludeInstruction = '';
