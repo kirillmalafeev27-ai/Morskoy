@@ -10,6 +10,7 @@ const GRAMMAR_TOPICS = [
   // Nomen & Artikel
   'Artikel', 'Nominativ', 'Akkusativ', 'Dativ', 'Genitiv',
   'N-Deklination', 'Pronomen', 'Pronominaladverbien',
+  'Possessivpronomen in verschiedenen Kasus',
   // Adjektive
   'Adjektivdeklination', 'Steigerung',
   // Präpositionen
