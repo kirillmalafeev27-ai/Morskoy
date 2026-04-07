@@ -1,5 +1,5 @@
 // Main game state and logic
-// Includes: level progression, leaderboard, death animation, touch/swipe
+// Slot-based topic system with Claude API question generation
 
 // Level progression config
 const LEVEL_CONFIG = [
@@ -15,14 +15,11 @@ const LEVEL_CONFIG = [
 
 // Leaderboard (localStorage)
 class Leaderboard {
-  constructor() {
-    this.key = 'morskoy_leaderboard';
-  }
+  constructor() { this.key = 'morskoy_leaderboard'; }
 
   getScores() {
-    try {
-      return JSON.parse(localStorage.getItem(this.key)) || [];
-    } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(this.key)) || []; }
+    catch { return []; }
   }
 
   addScore(entry) {
@@ -33,7 +30,6 @@ class Leaderboard {
       if (b.treasures !== a.treasures) return b.treasures - a.treasures;
       return b.accuracy - a.accuracy;
     });
-    // Keep top 20
     localStorage.setItem(this.key, JSON.stringify(scores.slice(0, 20)));
   }
 
@@ -43,10 +39,7 @@ class Leaderboard {
     const emptyMsg = document.getElementById('leaderboard-empty');
     tbody.innerHTML = '';
 
-    if (scores.length === 0) {
-      emptyMsg.classList.remove('hidden');
-      return;
-    }
+    if (scores.length === 0) { emptyMsg.classList.remove('hidden'); return; }
     emptyMsg.classList.add('hidden');
 
     scores.forEach((s, i) => {
@@ -85,6 +78,8 @@ class Game {
     this.monsterCountSetting = 1;
     this.langLevel = 'A2';
     this.playerName = '';
+    this.lexicalTopic = null;
+    this.slotConfigs = []; // { slotDef, grammarTopic }
 
     // Level
     this.currentLevel = 1;
@@ -108,7 +103,7 @@ class Game {
     this.expandedVisionTurns = 0;
     this.monsterRevealed = false;
     this.revealTurns = 0;
-    this.currentTopic = null;
+    this.currentSlotId = null;
     this.currentQuestion = null;
 
     // Touch/swipe
@@ -147,12 +142,14 @@ class Game {
     }, { passive: false });
   }
 
-  init(settings) {
+  async init(settings) {
     this.isCreepy = settings.isCreepy;
     this.monsterCountSetting = settings.monsterCount;
     this.langLevel = settings.langLevel;
     this.playerName = settings.playerName || 'Unknown';
     this.currentLevel = settings.level || 1;
+    this.lexicalTopic = settings.lexicalTopic || null;
+    this.slotConfigs = settings.slotConfigs || [];
 
     if (!this.isCreepy) {
       document.body.classList.add('calm-mode');
@@ -160,7 +157,7 @@ class Game {
       document.body.classList.remove('calm-mode');
     }
 
-    // Get level config (clamp to max defined, then extrapolate)
+    // Get level config
     const lvlCfg = this._getLevelConfig(this.currentLevel);
 
     // Generate maze
@@ -173,7 +170,7 @@ class Game {
     this.playerX = 1;
     this.playerY = 1;
 
-    // Place treasures far from player
+    // Place treasures
     this.treasures = [];
     this.totalTreasures = lvlCfg.treasures;
     const farCells = pathCells.filter(c =>
@@ -184,7 +181,7 @@ class Game {
       this.treasures.push({ x: shuffledFar[i].x, y: shuffledFar[i].y, collected: false });
     }
 
-    // Monster count: use setting if > config, else config
+    // Monster count
     const monsterCount = Math.max(lvlCfg.monsters, this.monsterCountSetting);
 
     // Place monsters
@@ -206,45 +203,30 @@ class Game {
     if (this.renderer) this.renderer.dispose();
     this.renderer = new DungeonRenderer(canvas, this.isCreepy);
 
-    // Load 3D models, then build scene
     const buildScene = () => {
       this.renderer.buildMaze(this.mazeGen);
       this.renderer.createPlayer(this.playerX, this.playerY);
       this.renderer.updateCamera(this.playerX, this.playerY, true);
-
-      this.monsters.forEach((m, i) => {
-        this.renderer.createMonster(m.x, m.y, i);
-      });
-
-      this.treasures.forEach((t, i) => {
-        this.renderer.createTreasure(t.x, t.y, i);
-      });
-
+      this.monsters.forEach((m, i) => this.renderer.createMonster(m.x, m.y, i));
+      this.treasures.forEach((t, i) => this.renderer.createTreasure(t.x, t.y, i));
       this._finishInit();
     };
 
-    // Try loading models, build scene when done (or on fail)
-    this.renderer.loadModels(() => {
-      buildScene();
-    });
-
-    // Fallback: if models take too long, build with primitives after 3s
-    setTimeout(() => {
-      if (this.state === 'loading') {
-        buildScene();
-      }
-    }, 3000);
+    this.renderer.loadModels(() => buildScene());
+    setTimeout(() => { if (this.state === 'loading') buildScene(); }, 3000);
 
     // Init audio
     if (this.audio) this.audio.dispose();
     this.audio = new AudioManager();
     this.audio.init(this.isCreepy);
 
-    // Init questions
+    // Init question manager with configured slots
     if (!this.questionManager) {
       this.questionManager = new QuestionManager(this.langLevel);
     }
     this.questionManager.setLevel(this.langLevel);
+    this.questionManager.setLexicalTopic(this.lexicalTopic);
+    this.questionManager.configureSlots(this.slotConfigs);
 
     // Reset state
     this.treasuresCollected = 0;
@@ -255,35 +237,31 @@ class Game {
     this.questionsAnswered = 0;
     this.questionsCorrect = 0;
     this.state = 'loading';
+
+    // Pre-fetch questions in background
+    this.questionManager.prefetchAll().catch(e => console.warn('Prefetch failed:', e));
   }
 
   _finishInit() {
-    if (this.state !== 'loading') return; // already initialized
+    if (this.state !== 'loading') return;
     this.state = 'topic_select';
 
-    // Start monsters
     this.monsters.forEach(m => {
       m.start(() => ({ x: this.playerX, y: this.playerY }));
       m.onMove = () => this._onMonsterMove();
     });
 
-    // Update HUD
     this._updateHUD();
     this._showTopicPanel();
-
-    // Start render loop
     this.renderer.startLoop(() => this._update());
   }
 
   _getLevelConfig(level) {
-    if (level <= LEVEL_CONFIG.length) {
-      return LEVEL_CONFIG[level - 1];
-    }
-    // Extrapolate beyond defined levels
+    if (level <= LEVEL_CONFIG.length) return LEVEL_CONFIG[level - 1];
     const last = LEVEL_CONFIG[LEVEL_CONFIG.length - 1];
     const extra = level - LEVEL_CONFIG.length;
     return {
-      level: level,
+      level,
       mazeW: Math.min(last.mazeW + extra * 2, 41),
       mazeH: Math.min(last.mazeH + extra * 2, 41),
       monsters: Math.min(last.monsters + Math.floor(extra / 2), 5),
@@ -298,8 +276,7 @@ class Game {
 
     this.monsters.forEach((m, i) => {
       const isVisible = this.renderer.isInVisibleRange(this.playerX, this.playerY, m.x, m.y);
-      const isRevealed = this.monsterRevealed;
-      this.renderer.updateMonster(i, m.x, m.y, isVisible, isRevealed);
+      this.renderer.updateMonster(i, m.x, m.y, isVisible, this.monsterRevealed);
     });
 
     this.treasures.forEach((t, i) => {
@@ -307,11 +284,9 @@ class Game {
       this.renderer.updateTreasure(i, isVisible, t.collected);
     });
 
-    // Audio proximity
     if (this.monsters.length > 0 && this.audio) {
       const closest = Math.min(...this.monsters.map(m => m.getDistanceToPlayer()));
-      const maxHear = 12;
-      const proximity = Math.max(0, 1 - closest / maxHear);
+      const proximity = Math.max(0, 1 - closest / 12);
       this.audio.updateMonsterProximity(proximity);
     }
   }
@@ -325,15 +300,20 @@ class Game {
     }
   }
 
-  selectTopic(topicKey) {
+  async selectTopic(slotId) {
     if (this.state !== 'topic_select') return;
 
-    this.currentTopic = topicKey;
-    const question = this.questionManager.getQuestion(topicKey);
-    if (!question) return;
+    this.currentSlotId = slotId;
+    this.state = 'question';
+
+    // Show loading briefly if no cached questions
+    const question = await this.questionManager.getQuestion(slotId);
+    if (!question) {
+      this.state = 'topic_select';
+      return;
+    }
 
     this.currentQuestion = question;
-    this.state = 'question';
     this._showQuestion(question);
   }
 
@@ -346,7 +326,7 @@ class Game {
     if (isCorrect) {
       this.questionsCorrect++;
       this.audio.playCorrectAnswer();
-      this._applyBonus(this.currentQuestion.topicInfo.bonus);
+      this._applyBonus(this.currentQuestion.slotDef.bonus);
       this._showFeedback(true, this.currentQuestion.options.options[this.currentQuestion.options.correctIndex]);
 
       setTimeout(() => {
@@ -428,7 +408,6 @@ class Game {
     this.movesLeft--;
 
     this.audio.playStep();
-
     this._checkTreasures();
 
     for (const m of this.monsters) {
@@ -469,18 +448,12 @@ class Game {
   _tickEffects() {
     if (this.expandedVisionTurns > 0) {
       this.expandedVisionTurns--;
-      if (this.expandedVisionTurns <= 0) {
-        this.renderer.resetVisibleRadius();
-      }
+      if (this.expandedVisionTurns <= 0) this.renderer.resetVisibleRadius();
     }
-
     if (this.revealTurns > 0) {
       this.revealTurns--;
-      if (this.revealTurns <= 0) {
-        this.monsterRevealed = false;
-      }
+      if (this.revealTurns <= 0) this.monsterRevealed = false;
     }
-
     this._updateStatusEffects();
   }
 
@@ -490,18 +463,14 @@ class Game {
     this.monsters.forEach(m => m.stop());
     this.audio.playMonsterCatch();
 
-    // Save to leaderboard
     const accuracy = this.questionsAnswered > 0
       ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100) : 0;
     this.leaderboard.addScore({
-      name: this.playerName,
-      level: this.currentLevel,
-      treasures: this.treasuresCollected,
-      accuracy: accuracy,
+      name: this.playerName, level: this.currentLevel,
+      treasures: this.treasuresCollected, accuracy,
       date: new Date().toISOString().split('T')[0],
     });
 
-    // Death animation
     const mx = killerMonster ? killerMonster.x : this.playerX;
     const my = killerMonster ? killerMonster.y : this.playerY;
 
@@ -523,10 +492,8 @@ class Game {
     const accuracy = this.questionsAnswered > 0
       ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100) : 0;
     this.leaderboard.addScore({
-      name: this.playerName,
-      level: this.currentLevel,
-      treasures: this.treasuresCollected,
-      accuracy: accuracy,
+      name: this.playerName, level: this.currentLevel,
+      treasures: this.treasuresCollected, accuracy,
       date: new Date().toISOString().split('T')[0],
     });
 
@@ -548,12 +515,12 @@ class Game {
       langLevel: this.langLevel,
       playerName: this.playerName,
       level: this.currentLevel,
+      lexicalTopic: this.lexicalTopic,
+      slotConfigs: this.slotConfigs,
     });
   }
 
-  restart() {
-    this.currentLevel = 1;
-  }
+  restart() { this.currentLevel = 1; }
 
   // === UI Methods ===
 
@@ -561,6 +528,28 @@ class Game {
     document.getElementById('topic-panel').classList.remove('hidden');
     document.getElementById('question-panel').classList.add('hidden');
     document.getElementById('direction-panel').classList.add('hidden');
+
+    // Build topic buttons from configured slots
+    const container = document.getElementById('topic-buttons');
+    container.innerHTML = '';
+
+    this.slotConfigs.forEach((cfg, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'topic-btn';
+      btn.dataset.slot = cfg.slotDef.id;
+
+      const name = cfg.slotDef.isWortstellung
+        ? `Wortstellung + ${cfg.grammarTopic}`
+        : cfg.grammarTopic;
+
+      btn.innerHTML = `
+        <span class="topic-name">${name}</span>
+        <span class="topic-bonus">${cfg.slotDef.bonusLabel}</span>
+      `;
+
+      btn.addEventListener('click', () => this.selectTopic(cfg.slotDef.id));
+      container.appendChild(btn);
+    });
   }
 
   _showQuestion(question) {
@@ -570,8 +559,11 @@ class Game {
     const panel = document.getElementById('question-panel');
     panel.classList.remove('hidden');
 
+    const topicLabel = question.slotDef.isWortstellung
+      ? `Wortstellung + ${question.grammarTopic}`
+      : question.grammarTopic;
     document.getElementById('question-topic-label').textContent =
-      `${question.topicInfo.name} (${question.level})`;
+      `${topicLabel} (${question.level})`;
     document.getElementById('question-text').innerHTML =
       `${question.text}<br><strong>${question.display}</strong>`;
 
@@ -586,9 +578,7 @@ class Game {
       btn.addEventListener('click', () => {
         optionsDiv.querySelectorAll('.option-btn').forEach(b => b.disabled = true);
         btn.classList.add(i === correctIndex ? 'correct' : 'wrong');
-        if (i !== correctIndex) {
-          optionsDiv.children[correctIndex].classList.add('correct');
-        }
+        if (i !== correctIndex) optionsDiv.children[correctIndex].classList.add('correct');
         this.answerQuestion(i);
       });
       optionsDiv.appendChild(btn);
@@ -603,8 +593,8 @@ class Game {
     feedback.classList.add(isCorrect ? 'correct' : 'wrong');
 
     if (isCorrect) {
-      const bonusLabel = TOPICS[this.currentTopic].bonusLabel;
-      feedback.textContent = `Richtig! Бонус: ${bonusLabel}`;
+      const slot = this.slotConfigs.find(s => s.slotDef.id === this.currentSlotId);
+      feedback.textContent = `Richtig! Бонус: ${slot ? slot.slotDef.bonusLabel : ''}`;
     } else {
       feedback.textContent = `Falsch. Правильный ответ: ${correctAnswer}`;
     }
@@ -621,7 +611,6 @@ class Game {
 
     this._updateDirectionButtons();
 
-    // Show swipe hint on mobile
     if ('ontouchstart' in window) {
       const hint = document.getElementById('swipe-hint');
       hint.textContent = 'Свайпните по экрану для движения';
@@ -640,10 +629,9 @@ class Game {
       const dir = dirs[btn.dataset.dir];
       const nx = this.playerX + dir.x;
       const ny = this.playerY + dir.y;
-      const canMove = nx >= 0 && nx < this.mazeGen.width &&
-                      ny >= 0 && ny < this.mazeGen.height &&
-                      this.mazeGen.grid[ny][nx] === 1;
-      btn.disabled = !canMove;
+      btn.disabled = !(nx >= 0 && nx < this.mazeGen.width &&
+                       ny >= 0 && ny < this.mazeGen.height &&
+                       this.mazeGen.grid[ny][nx] === 1);
     });
 
     document.querySelector('#direction-panel .direction-prompt').textContent =
@@ -658,14 +646,12 @@ class Game {
   _updateStatusEffects() {
     const container = document.getElementById('status-effects');
     container.innerHTML = '';
-
     if (this.expandedVisionTurns > 0) {
       const badge = document.createElement('div');
       badge.className = 'status-badge';
       badge.textContent = `Зрение +${this.expandedVisionTurns}`;
       container.appendChild(badge);
     }
-
     if (this.revealTurns > 0) {
       const badge = document.createElement('div');
       badge.className = 'status-badge';

@@ -13,47 +13,117 @@
       <h1 id="game-title">MORSKOY DUNGEON</h1>
       <p class="subtitle" id="game-subtitle">Грамматика немецкого в тёмных коридорах</p>
 
-      <div class="menu-options">
-        <div class="option-group name-input-group">
-          <label>Имя игрока:</label>
-          <input type="text" id="player-name" placeholder="Введите ваше имя..." maxlength="20">
-        </div>
+      <!-- Step 1: Name & Settings -->
+      <div id="setup-step1" class="setup-step">
+        <div class="menu-options">
+          <div class="option-group name-input-group">
+            <label>Имя игрока:</label>
+            <input type="text" id="player-name" placeholder="Введите ваше имя..." maxlength="20">
+          </div>
 
-        <div class="option-group">
-          <label>Уровень немецкого:</label>
-          <select id="lang-level">
-            <option value="A1">A1 — Начальный</option>
-            <option value="A2" selected>A2 — Элементарный</option>
-            <option value="B1">B1 — Средний</option>
-            <option value="B2">B2 — Выше среднего</option>
-          </select>
-        </div>
+          <div class="option-group">
+            <label>Монстры:</label>
+            <select id="monster-count">
+              <option value="1">Один монстр</option>
+              <option value="2">Два монстра</option>
+              <option value="3">Три монстра</option>
+            </select>
+          </div>
 
-        <div class="option-group">
-          <label>Монстры:</label>
-          <select id="monster-count">
-            <option value="1">Один монстр</option>
-            <option value="2">Два монстра</option>
-            <option value="3">Три монстра</option>
-          </select>
-        </div>
-
-        <div class="option-group">
-          <label>Атмосфера:</label>
-          <div class="toggle-container">
-            <span class="toggle-label">Спокойная</span>
-            <label class="toggle-switch">
-              <input type="checkbox" id="creepy-mode" checked>
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label">Жуткая</span>
+          <div class="option-group">
+            <label>Атмосфера:</label>
+            <div class="toggle-container">
+              <span class="toggle-label">Спокойная</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="creepy-mode" checked>
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-label">Жуткая</span>
+            </div>
           </div>
         </div>
+
+        <button id="to-step2-btn" class="btn-primary">ДАЛЕЕ</button>
+        <br>
+        <button id="leaderboard-btn" class="btn-secondary">ТАБЛИЦА ЛИДЕРОВ</button>
       </div>
 
-      <button id="start-btn" class="btn-primary">НАЧАТЬ ИГРУ</button>
-      <br>
-      <button id="leaderboard-btn" class="btn-secondary">ТАБЛИЦА ЛИДЕРОВ</button>
+      <!-- Step 2: Language Level -->
+      <div id="setup-step2" class="setup-step hidden">
+        <h2 class="step-title">Выберите уровень немецкого</h2>
+        <p class="step-hint">Уровень фиксируется на всю игру. Все упражнения будут этого уровня.</p>
+        <div class="level-buttons">
+          <button class="level-btn" data-level="A1">
+            <span class="level-code">A1</span>
+            <span class="level-desc">Начальный</span>
+          </button>
+          <button class="level-btn" data-level="A2">
+            <span class="level-code">A2</span>
+            <span class="level-desc">Элементарный</span>
+          </button>
+          <button class="level-btn" data-level="B1">
+            <span class="level-code">B1</span>
+            <span class="level-desc">Средний</span>
+          </button>
+          <button class="level-btn" data-level="B2">
+            <span class="level-code">B2</span>
+            <span class="level-desc">Выше среднего</span>
+          </button>
+        </div>
+        <button id="back-to-step1" class="btn-secondary">Назад</button>
+      </div>
+
+      <!-- Step 3: Lexical Topic -->
+      <div id="setup-step3" class="setup-step hidden">
+        <h2 class="step-title">Выберите лексическую тему</h2>
+        <p class="step-hint">Все упражнения будут использовать слова из этой темы.</p>
+        <div id="lexical-grid" class="lexical-grid"></div>
+        <button id="back-to-step2" class="btn-secondary">Назад</button>
+      </div>
+
+      <!-- Step 4: Grammar Slots -->
+      <div id="setup-step4" class="setup-step hidden">
+        <h2 class="step-title">Настройте бонусные слоты</h2>
+        <p class="step-hint">Выберите грамматическую тему, затем кликните на пустой слот.</p>
+
+        <!-- Bonus Slots -->
+        <div id="bonus-slots" class="bonus-slots">
+          <div class="bonus-slot filled" data-slot="0">
+            <div class="slot-bonus">2 хода</div>
+            <div class="slot-topic">Wortstellung</div>
+            <div class="slot-grammar">+ выберите тему</div>
+          </div>
+          <div class="bonus-slot empty" data-slot="1">
+            <div class="slot-bonus">+1 ход</div>
+            <div class="slot-topic">Пусто</div>
+            <div class="slot-grammar"></div>
+          </div>
+          <div class="bonus-slot empty" data-slot="2">
+            <div class="slot-bonus">Расш. зрение</div>
+            <div class="slot-topic">Пусто</div>
+            <div class="slot-grammar"></div>
+          </div>
+          <div class="bonus-slot empty" data-slot="3">
+            <div class="slot-bonus">Приманка</div>
+            <div class="slot-topic">Пусто</div>
+            <div class="slot-grammar"></div>
+          </div>
+          <div class="bonus-slot empty" data-slot="4">
+            <div class="slot-bonus">Показать монстра</div>
+            <div class="slot-topic">Пусто</div>
+            <div class="slot-grammar"></div>
+          </div>
+        </div>
+
+        <!-- Grammar topics to choose from -->
+        <div class="grammar-picker-label">Грамматические темы:</div>
+        <div id="grammar-picker" class="grammar-picker"></div>
+
+        <div class="step4-buttons">
+          <button id="start-btn" class="btn-primary" disabled>НАЧАТЬ ИГРУ</button>
+          <button id="back-to-step3" class="btn-secondary">Назад</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -63,7 +133,7 @@
       <h2>КАК ИГРАТЬ</h2>
       <div class="tutorial-step">
         <span class="step-icon">1.</span>
-        <strong>Выберите тему</strong> немецкой грамматики — каждая даёт уникальный бонус
+        <strong>Выберите слот</strong> с грамматической темой — каждый даёт уникальный бонус
       </div>
       <div class="tutorial-step">
         <span class="step-icon">2.</span>
@@ -98,53 +168,35 @@
     <!-- HUD -->
     <div id="hud">
       <div id="treasure-counter">
-        <span class="hud-icon">💎</span>
+        <span class="hud-icon">&#x1F48E;</span>
         <span id="treasure-count">0</span> / 3
       </div>
-      <div id="level-display">Уровень <span id="level-num">1</span></div>
+      <div id="level-display">&#x0423;&#x0440;&#x043E;&#x0432;&#x0435;&#x043D;&#x044C; <span id="level-num">1</span></div>
       <div id="status-effects"></div>
+    </div>
+
+    <!-- Loading overlay for questions -->
+    <div id="loading-overlay" class="hidden">
+      <div class="loading-spinner"></div>
+      <p>Генерация упражнений...</p>
     </div>
 
     <!-- Direction controls -->
     <div id="direction-panel" class="hidden">
       <p class="direction-prompt">Выберите направление:</p>
       <div class="direction-buttons">
-        <button class="dir-btn" data-dir="up">↑</button>
-        <button class="dir-btn" data-dir="left">←</button>
-        <button class="dir-btn" data-dir="down">↓</button>
-        <button class="dir-btn" data-dir="right">→</button>
+        <button class="dir-btn" data-dir="up">&uarr;</button>
+        <button class="dir-btn" data-dir="left">&larr;</button>
+        <button class="dir-btn" data-dir="down">&darr;</button>
+        <button class="dir-btn" data-dir="right">&rarr;</button>
       </div>
     </div>
 
-    <!-- Topic Selection Panel -->
-    <div id="topic-panel">
+    <!-- Topic Selection Panel (now shows configured slots) -->
+    <div id="topic-panel" class="hidden">
       <h3>Выберите тему:</h3>
-      <div class="topic-buttons">
-        <button class="topic-btn" data-topic="wortstellung">
-          <span class="topic-name">Wortstellung</span>
-          <span class="topic-bonus">→ 1 ход</span>
-          <span class="topic-diff">★</span>
-        </button>
-        <button class="topic-btn" data-topic="artikel">
-          <span class="topic-name">Artikel & Deklination</span>
-          <span class="topic-bonus">→ Расш. зрение</span>
-          <span class="topic-diff">★★</span>
-        </button>
-        <button class="topic-btn" data-topic="konjugation">
-          <span class="topic-name">Konjugation</span>
-          <span class="topic-bonus">→ 2 хода</span>
-          <span class="topic-diff">★★★</span>
-        </button>
-        <button class="topic-btn" data-topic="nebensaetze">
-          <span class="topic-name">Nebensätze</span>
-          <span class="topic-bonus">→ Приманка</span>
-          <span class="topic-diff">★★★★</span>
-        </button>
-        <button class="topic-btn" data-topic="konjunktiv">
-          <span class="topic-name">Konjunktiv II</span>
-          <span class="topic-bonus">→ Показать монстра</span>
-          <span class="topic-diff">★★★★★</span>
-        </button>
+      <div id="topic-buttons" class="topic-buttons">
+        <!-- Filled dynamically from configured slots -->
       </div>
     </div>
 
@@ -156,10 +208,6 @@
       </div>
       <p id="question-text"></p>
       <div id="question-options"></div>
-      <div id="question-input-area" class="hidden">
-        <input type="text" id="question-input" placeholder="Deine Antwort..." autocomplete="off">
-        <button id="submit-answer" class="btn-primary">Antworten</button>
-      </div>
       <div id="question-feedback" class="hidden"></div>
     </div>
   </div>
@@ -208,7 +256,7 @@
   <!-- Three.js from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-  <!-- Three.js post-processing (bloom, SSAO, vignette) -->
+  <!-- Three.js post-processing -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
