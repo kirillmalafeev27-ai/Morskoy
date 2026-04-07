@@ -14,18 +14,6 @@ class DungeonRenderer {
     this.modelsLoaded = false;
     this.loader = new THREE.GLTFLoader();
 
-    // Player character
-    this.playerMixer = null;
-    this.playerAnimations = {};
-    this.currentPlayerAnim = null;
-    this.playerTargetRotY = 0;
-
-    // Camera orbit
-    this.cameraAngle = 0; // horizontal orbit angle (radians)
-    this.cameraDragging = false;
-    this.cameraDragStartX = 0;
-    this.cameraDragStartAngle = 0;
-
     // Scene setup
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
@@ -85,56 +73,6 @@ class DungeonRenderer {
     this.animationId = null;
 
     window.addEventListener('resize', () => this._onResize());
-
-    // Camera orbit controls
-    this._initCameraControls();
-  }
-
-  _initCameraControls() {
-    const el = this.canvas;
-
-    // Desktop: right-click drag to orbit
-    el.addEventListener('contextmenu', (e) => e.preventDefault());
-
-    el.addEventListener('mousedown', (e) => {
-      if (e.button === 2) { // right click
-        this.cameraDragging = true;
-        this.cameraDragStartX = e.clientX;
-        this.cameraDragStartAngle = this.cameraAngle;
-      }
-    });
-
-    window.addEventListener('mousemove', (e) => {
-      if (!this.cameraDragging) return;
-      const dx = e.clientX - this.cameraDragStartX;
-      this.cameraAngle = this.cameraDragStartAngle + dx * 0.005;
-    });
-
-    window.addEventListener('mouseup', (e) => {
-      if (e.button === 2) this.cameraDragging = false;
-    });
-
-    // Mobile: two-finger horizontal drag to orbit
-    this._cameraTouches = [];
-    el.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
-        this.cameraDragging = true;
-        this.cameraDragStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        this.cameraDragStartAngle = this.cameraAngle;
-      }
-    }, { passive: true });
-
-    el.addEventListener('touchmove', (e) => {
-      if (this.cameraDragging && e.touches.length === 2) {
-        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        const dx = midX - this.cameraDragStartX;
-        this.cameraAngle = this.cameraDragStartAngle + dx * 0.008;
-      }
-    }, { passive: true });
-
-    el.addEventListener('touchend', () => {
-      this.cameraDragging = false;
-    }, { passive: true });
   }
 
   _initPostProcessing() {
@@ -309,24 +247,7 @@ class DungeonRenderer {
     };
 
     let loaded = 0;
-    const total = Object.keys(modelList).length + 1; // +1 for player model
-
-    // Load player character separately (with animations)
-    this.loader.load(
-      'assets/models/Player_Rogue.glb',
-      (gltf) => {
-        this.playerGltf = gltf;
-        loaded++;
-        if (loaded >= total) { this.modelsLoaded = true; if (callback) callback(); }
-      },
-      undefined,
-      (err) => {
-        console.warn('Failed to load player model:', err);
-        this.playerGltf = null;
-        loaded++;
-        if (loaded >= total) { this.modelsLoaded = true; if (callback) callback(); }
-      }
-    );
+    const total = Object.keys(modelList).length;
 
     for (const [key, path] of Object.entries(modelList)) {
       this.loader.load(
@@ -334,13 +255,19 @@ class DungeonRenderer {
         (gltf) => {
           this.modelCache[key] = gltf.scene;
           loaded++;
-          if (loaded >= total) { this.modelsLoaded = true; if (callback) callback(); }
+          if (loaded >= total) {
+            this.modelsLoaded = true;
+            if (callback) callback();
+          }
         },
         undefined,
         (err) => {
           console.warn(`Failed to load model ${key}:`, err);
           loaded++;
-          if (loaded >= total) { this.modelsLoaded = true; if (callback) callback(); }
+          if (loaded >= total) {
+            this.modelsLoaded = true;
+            if (callback) callback();
+          }
         }
       );
     }
@@ -567,52 +494,19 @@ class DungeonRenderer {
 
   createPlayer(x, y) {
     const T = this.TILE_SIZE;
+    const geo = new THREE.SphereGeometry(T * 0.3, 16, 16);
+    this.playerMesh = new THREE.Mesh(geo, this.playerMaterial);
+    this.playerMesh.position.set(x * T, T * 0.3, y * T);
+    this.playerMesh.castShadow = true;
+    this.scene.add(this.playerMesh);
 
-    if (this.playerGltf) {
-      // Use 3D character model directly (no clone — SkinnedMesh needs SkeletonUtils)
-      this.playerMesh = this.playerGltf.scene;
-      // Scale to fit tile
-      const box = new THREE.Box3().setFromObject(this.playerMesh);
-      const size = box.getSize(new THREE.Vector3());
-      const charScale = (T * 1.8) / Math.max(size.y, 0.01);
-      this.playerMesh.scale.setScalar(charScale);
-      this.playerMesh.position.set(x * T, 0, y * T);
-      // Hide weapon/accessory meshes (Throwable appears as brown ball, etc.)
-      const hideNames = ['Throwable', 'Knife', 'Knife_Offhand', '1H_Crossbow', '2H_Crossbow', 'Smokebomb'];
-      this.playerMesh.traverse(c => {
-        if (c.isMesh) {
-          c.castShadow = true;
-          c.receiveShadow = true;
-        }
-        if (hideNames.some(n => c.name && c.name.includes(n))) {
-          c.visible = false;
-        }
-      });
-      this.scene.add(this.playerMesh);
-
-      // Setup animation mixer
-      this.playerMixer = new THREE.AnimationMixer(this.playerMesh);
-      const clips = this.playerGltf.animations;
-      for (const clip of clips) {
-        this.playerAnimations[clip.name] = this.playerMixer.clipAction(clip);
-      }
-      // Start idle
-      this._playPlayerAnim('Idle');
-    } else {
-      // Fallback sphere
-      const geo = new THREE.SphereGeometry(T * 0.3, 16, 16);
-      this.playerMesh = new THREE.Mesh(geo, this.playerMaterial);
-      this.playerMesh.position.set(x * T, T * 0.3, y * T);
-      this.playerMesh.castShadow = true;
-      this.scene.add(this.playerMesh);
-    }
-
-    // Main player torch
+    // Main player torch - illuminates exactly the visible radius
     const lightRange = (this.visibleRadius + 0.5) * T;
     this.playerLight = new THREE.PointLight(
       this.isCreepy ? 0xff8833 : 0x99bbff,
       this.isCreepy ? 2.0 : 1.8,
-      lightRange * 2, 1.5
+      lightRange * 2,
+      1.5
     );
     this.playerLight.position.set(x * T, 2.5, y * T);
     this.playerLight.castShadow = true;
@@ -620,22 +514,10 @@ class DungeonRenderer {
     this.playerLight.shadow.mapSize.height = 512;
     this.scene.add(this.playerLight);
 
-    // Fill light from above
+    // Fill light from above - softer, matches visible radius
     this.playerFillLight = new THREE.PointLight(0xffffff, 0.4, lightRange * 2.5, 1.8);
     this.playerFillLight.position.set(x * T, 8, y * T);
     this.scene.add(this.playerFillLight);
-  }
-
-  _playPlayerAnim(name) {
-    if (this.currentPlayerAnim === name) return;
-    const action = this.playerAnimations[name];
-    if (!action) return;
-    // Crossfade from current
-    if (this.currentPlayerAnim && this.playerAnimations[this.currentPlayerAnim]) {
-      this.playerAnimations[this.currentPlayerAnim].fadeOut(0.2);
-    }
-    action.reset().fadeIn(0.2).play();
-    this.currentPlayerAnim = name;
   }
 
   updatePlayer(x, y) {
@@ -643,58 +525,24 @@ class DungeonRenderer {
     const T = this.TILE_SIZE;
     const targetX = x * T;
     const targetZ = y * T;
-
-    const prevX = this.playerMesh.position.x;
-    const prevZ = this.playerMesh.position.z;
-
-    this.playerMesh.position.x += (targetX - prevX) * 0.2;
-    this.playerMesh.position.z += (targetZ - prevZ) * 0.2;
-
-    // Determine if moving
-    const dx = targetX - prevX;
-    const dz = targetZ - prevZ;
-    const isMoving = Math.abs(dx) > 0.05 || Math.abs(dz) > 0.05;
-
-    // Face movement direction
-    if (isMoving) {
-      this.playerTargetRotY = Math.atan2(dx, dz);
-      this._playPlayerAnim('Walking_A');
-    } else {
-      this._playPlayerAnim('Idle');
-    }
-
-    // Smooth rotation
-    if (this.playerGltf) {
-      let rotDiff = this.playerTargetRotY - this.playerMesh.rotation.y;
-      // Normalize to [-PI, PI]
-      while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-      while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-      this.playerMesh.rotation.y += rotDiff * 0.15;
-      this.playerMesh.position.y = 0; // Character stands on floor
-    } else {
-      // Fallback sphere bob
-      const time = this.clock.getElapsedTime();
-      this.playerMesh.position.y = T * 0.3 + Math.sin(time * 2) * 0.05;
-    }
-
-    // Update animation mixer (use separate tracking to avoid clock conflicts)
-    if (this.playerMixer) {
-      const now = this.clock.getElapsedTime();
-      const delta = now - (this._lastMixerTime || now);
-      this._lastMixerTime = now;
-      if (delta > 0 && delta < 0.1) this.playerMixer.update(delta);
-    }
-
+    this.playerMesh.position.x += (targetX - this.playerMesh.position.x) * 0.2;
+    this.playerMesh.position.z += (targetZ - this.playerMesh.position.z) * 0.2;
     this.playerLight.position.x = this.playerMesh.position.x;
     this.playerLight.position.z = this.playerMesh.position.z;
 
+    // Light range tracks visibleRadius (expands with Artikel bonus)
     const lightRange = (this.visibleRadius + 0.5) * T;
     if (this.playerFillLight) {
       this.playerFillLight.position.x = this.playerMesh.position.x;
       this.playerFillLight.position.z = this.playerMesh.position.z;
       this.playerFillLight.distance = lightRange * 2.5;
     }
+
     this.playerLight.distance = lightRange * 2;
+
+    // Gentle player bob
+    const time = this.clock.getElapsedTime();
+    this.playerMesh.position.y = T * 0.3 + Math.sin(time * 2) * 0.05;
   }
 
   updateCamera(playerX, playerY, instant) {
@@ -702,12 +550,9 @@ class DungeonRenderer {
     const targetX = playerX * T;
     const targetZ = playerY * T;
 
-    // Orbit camera around player based on cameraAngle
-    const orbitDist = 12;
-    const orbitHeight = 20;
-    const camTargetX = targetX + Math.sin(this.cameraAngle) * orbitDist;
-    const camTargetY = orbitHeight;
-    const camTargetZ = targetZ + Math.cos(this.cameraAngle) * orbitDist;
+    const camTargetX = targetX;
+    const camTargetY = 20;
+    const camTargetZ = targetZ + 12;
 
     const lerp = instant ? 1.0 : 0.08;
     this.camera.position.x += (camTargetX - this.camera.position.x) * lerp;
@@ -721,7 +566,7 @@ class DungeonRenderer {
       this.camera.position.x += (Math.random() - 0.5) * intensity;
       this.camera.position.y += (Math.random() - 0.5) * intensity * 0.5;
       this.camera.position.z += (Math.random() - 0.5) * intensity;
-      this.shakeTimer -= 16;
+      this.shakeTimer -= 16; // approx per frame
     }
 
     if (this.playerMesh) {
@@ -1075,9 +920,6 @@ class DungeonRenderer {
   playDeathAnimation(monsterX, monsterY, callback) {
     this.deathAnimating = true;
 
-    // Play death animation on character
-    this._playPlayerAnim('Death_A');
-
     // Red overlay
     const overlay = document.getElementById('death-overlay');
     overlay.classList.add('active');
@@ -1268,9 +1110,6 @@ class DungeonRenderer {
     this.playerMesh = null;
     this.playerLight = null;
     this.playerFillLight = null;
-    if (this.playerMixer) { this.playerMixer.stopAllAction(); this.playerMixer = null; }
-    this.playerAnimations = {};
-    this.currentPlayerAnim = null;
   }
 
   _onResize() {
