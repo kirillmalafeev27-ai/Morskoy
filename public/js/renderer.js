@@ -569,8 +569,8 @@ class DungeonRenderer {
     const T = this.TILE_SIZE;
 
     if (this.playerGltf) {
-      // Use 3D character model
-      this.playerMesh = this.playerGltf.scene.clone();
+      // Use 3D character model directly (no clone — SkinnedMesh needs SkeletonUtils)
+      this.playerMesh = this.playerGltf.scene;
       // Scale to fit tile
       const box = new THREE.Box3().setFromObject(this.playerMesh);
       const size = box.getSize(new THREE.Vector3());
