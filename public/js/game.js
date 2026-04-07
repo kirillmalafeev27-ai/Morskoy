@@ -204,11 +204,13 @@ class Game {
     this.renderer = new DungeonRenderer(canvas, this.isCreepy);
 
     const buildScene = () => {
+      if (this.state !== 'loading') return; // prevent double call
       this.renderer.buildMaze(this.mazeGen);
       this.renderer.createPlayer(this.playerX, this.playerY);
       this.renderer.updateCamera(this.playerX, this.playerY, true);
       this.monsters.forEach((m, i) => this.renderer.createMonster(m.x, m.y, i));
       this.treasures.forEach((t, i) => this.renderer.createTreasure(t.x, t.y, i));
+      this.state = 'waiting_questions'; // mark scene built, prevent re-entry
       this._finishInit();
     };
 
@@ -244,7 +246,7 @@ class Game {
   }
 
   async _finishInit() {
-    if (this.state !== 'loading') return;
+    if (this.state !== 'waiting_questions') return;
 
     // Wait for questions to load before starting the game
     if (this._prefetchPromise) {
