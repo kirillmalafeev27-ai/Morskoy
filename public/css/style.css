@@ -628,3 +628,13 @@ body.calm-mode .loading-spinner { border-top-color: #4a9eff; }
 }
 
 #swipe-hint.show { opacity: 1; }
+
+/* ===== iOS SAFE AREA ===== */
+@supports (padding: env(safe-area-inset-bottom)) {
+  #topic-panel, #question-panel, #direction-panel {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  #hud {
+    padding-top: env(safe-area-inset-top);
+  }
+}

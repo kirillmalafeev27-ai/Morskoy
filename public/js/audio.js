@@ -22,6 +22,11 @@ class AudioManager {
     this.isCreepy = isCreepy;
     this.initialized = true;
 
+    // iOS Safari requires resume after user gesture
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+
     // Master
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0.35;
