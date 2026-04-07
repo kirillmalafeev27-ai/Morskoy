@@ -20,6 +20,7 @@ class Monster {
   start(getPlayerPos) {
     this.getPlayerPos = getPlayerPos;
     this.alive = true;
+    this._lastMoveTime = Date.now();
     this._scheduleMove();
   }
 
@@ -34,6 +35,14 @@ class Monster {
   _scheduleMove() {
     if (!this.alive) return;
     this.timer = setTimeout(() => {
+      // Guard against iOS Safari firing batched timers after tab resume
+      const now = Date.now();
+      const elapsed = now - this._lastMoveTime;
+      if (elapsed < this.moveInterval * 0.5) {
+        this._scheduleMove();
+        return; // skip — timer fired too soon (batched catch-up)
+      }
+      this._lastMoveTime = now;
       this._doMove();
       this._scheduleMove();
     }, this.moveInterval);
