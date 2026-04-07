@@ -1,13 +1,11 @@
 // Monster AI
-// Moves toward player, occasionally wanders, chases bait
+// Moves toward player on each player step (turn-based, not real-time)
 
 class Monster {
   constructor(x, y, maze) {
     this.x = x;
     this.y = y;
     this.maze = maze;
-    this.moveInterval = 4000; // ms between moves
-    this.timer = null;
     this.baitTarget = null; // {x, y} if bait is active
     this.baitTurnsLeft = 0;
     this.wanderChance = 0.15; // 15% chance to wander randomly (scare tactic)
@@ -20,26 +18,14 @@ class Monster {
   start(getPlayerPos) {
     this.getPlayerPos = getPlayerPos;
     this.alive = true;
-    this._scheduleMove();
   }
 
   stop() {
     this.alive = false;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
   }
 
-  _scheduleMove() {
-    if (!this.alive) return;
-    this.timer = setTimeout(() => {
-      this._doMove();
-      this._scheduleMove();
-    }, this.moveInterval);
-  }
-
-  _doMove() {
+  // Called once per player move — monster takes exactly one step
+  doStep() {
     if (!this.alive) return;
 
     let targetX, targetY;
@@ -50,7 +36,6 @@ class Monster {
       targetY = this.baitTarget.y;
       this.baitTurnsLeft--;
 
-      // Reached bait?
       if (this.x === targetX && this.y === targetY) {
         this.baitTarget = null;
         this.baitTurnsLeft = 0;
@@ -59,7 +44,7 @@ class Monster {
     // Random wander (scare tactic)
     else if (!this.isWandering && Math.random() < this.wanderChance) {
       this.isWandering = true;
-      this.wanderSteps = 2 + Math.floor(Math.random() * 3); // wander for 2-4 steps
+      this.wanderSteps = 2 + Math.floor(Math.random() * 3);
       this._moveRandom();
       if (this.onMove) this.onMove(this.x, this.y);
       return;
@@ -115,7 +100,7 @@ class Monster {
 
   setBait(x, y) {
     this.baitTarget = { x, y };
-    this.baitTurnsLeft = 8; // chase bait for ~8 moves
+    this.baitTurnsLeft = 8;
     this.isWandering = false;
   }
 
