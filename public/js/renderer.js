@@ -577,7 +577,17 @@ class DungeonRenderer {
       const charScale = (T * 1.8) / Math.max(size.y, 0.01);
       this.playerMesh.scale.setScalar(charScale);
       this.playerMesh.position.set(x * T, 0, y * T);
-      this.playerMesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      // Hide weapon/accessory meshes (Throwable appears as brown ball, etc.)
+      const hideNames = ['Throwable', 'Knife', 'Knife_Offhand', '1H_Crossbow', '2H_Crossbow', 'Smokebomb'];
+      this.playerMesh.traverse(c => {
+        if (c.isMesh) {
+          c.castShadow = true;
+          c.receiveShadow = true;
+        }
+        if (hideNames.some(n => c.name && c.name.includes(n))) {
+          c.visible = false;
+        }
+      });
       this.scene.add(this.playerMesh);
 
       // Setup animation mixer
