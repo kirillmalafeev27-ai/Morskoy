@@ -138,7 +138,7 @@ class QuestionManager {
     if (!slotConfig) { this.fetchQueue[slotId]--; return; }
 
     // Build list of used texts to send as exclusion
-    const used = this.usedTexts[slotId] ? Array.from(this.usedTexts[slotId]).slice(-20) : [];
+    const used = this.usedTexts[slotId] ? Array.from(this.usedTexts[slotId]).slice(-10) : [];
 
     try {
       const resp = await fetch('/api/generate-questions', {
@@ -149,7 +149,7 @@ class QuestionManager {
           lexicalTopic: this.lexicalTopic,
           grammarTopic: slotConfig.grammarTopic,
           isWortstellung: slotConfig.slotDef.isWortstellung || false,
-          count: 12,
+          count: 6,
           exclude: used,
         }),
       });

@@ -8,10 +8,11 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Claude API client
 const anthropic = new Anthropic();
 
-// Generate grammar exercises via Claude API
+// Server-side question cache to avoid duplicate API calls
+const questionPool = {}; // key: "level:grammar:lexical" -> array of questions
+
 app.post('/api/generate-questions', async (req, res) => {
   const { level, lexicalTopic, grammarTopic, isWortstellung, count, exclude } = req.body;
 
@@ -19,79 +20,74 @@ app.post('/api/generate-questions', async (req, res) => {
     return res.status(400).json({ error: 'level and grammarTopic are required' });
   }
 
-  const questionsCount = count || 12;
+  const questionsCount = count || 6;
+  const cacheKey = `${level}:${grammarTopic}:${lexicalTopic || ''}:${isWortstellung ? 'w' : 'g'}`;
 
-  // Build exclusion instruction if we have previously used questions
-  let excludeInstruction = '';
+  // Return from server cache if available
+  if (questionPool[cacheKey] && questionPool[cacheKey].length >= questionsCount) {
+    const cached = questionPool[cacheKey].splice(0, questionsCount);
+    res.json({ questions: cached });
+    return;
+  }
+
+  // Sentence length guide per CEFR level
+  const lengthGuide = {
+    'A1': '3-5 слов, простые предложения (Ich bin müde. Er hat einen Hund.)',
+    'A2': '5-8 слов, простые распространённые предложения (Ich gehe morgen in die Schule.)',
+    'B1': '8-12 слов, сложносочинённые и сложноподчинённые (Ich weiß, dass er morgen nach Berlin fährt.)',
+    'B2': '10-15 слов, сложные конструкции (Obwohl er müde war, hat er das Buch zu Ende gelesen.)',
+  };
+  const sentenceLen = lengthGuide[level] || lengthGuide['A2'];
+
+  // Short exclusion — send only display texts, max 10
+  let excludeNote = '';
   if (exclude && exclude.length > 0) {
-    excludeInstruction = `\n\nВАЖНО: Следующие предложения уже были использованы. НЕ повторяй их и НЕ создавай похожие. Придумай ПОЛНОСТЬЮ НОВЫЕ предложения:\n${exclude.map(t => `- "${t}"`).join('\n')}`;
+    const short = exclude.slice(-10).map(t => `"${t}"`).join(', ');
+    excludeNote = `\nНЕ используй эти предложения: ${short}`;
   }
 
-  let taskDescription;
+  let task;
   if (isWortstellung) {
-    taskDescription = `Создай ${questionsCount} упражнений на ПОРЯДОК СЛОВ (Wortstellung) в немецком языке.
-Грамматическая тема, которая должна быть использована в предложениях: ${grammarTopic}.
-${lexicalTopic ? `Лексическая тема: ${lexicalTopic}. Все предложения должны использовать слова из этой темы.` : ''}
-Формат: в поле "display" даны слова/фразы через " / " в ПЕРЕМЕШАННОМ (случайном) порядке — НЕ в правильном!
-Игрок должен угадать правильный порядок из 4 вариантов.
-Инструкция (text) должна быть на русском, варианты ответов — полные немецкие предложения.
-ВАЖНО: порядок слов в "display" ОБЯЗАН быть СЛУЧАЙНЫМ и НЕ должен совпадать с правильным ответом! Обязательно перемешай слова.
-Каждое упражнение должно использовать РАЗНЫЕ предложения. Не повторяйся!`;
+    task = `${questionsCount} упражнений на Wortstellung (${grammarTopic}).${lexicalTopic ? ` Тема: ${lexicalTopic}.` : ''}
+display: слова через " / " в СЛУЧАЙНОМ порядке (НЕ правильном!). options: 4 полных предложения, 1 правильное.`;
   } else {
-    taskDescription = `Создай ${questionsCount} упражнений по немецкой грамматике.
-Грамматическая тема: ${grammarTopic}.
-${lexicalTopic ? `Лексическая тема: ${lexicalTopic}. Все предложения должны использовать слова из этой темы.` : ''}
-Формат: предложение с пропуском ___, нужно выбрать правильный вариант из 4.
-Инструкция (text) на русском, display — немецкое предложение с пропуском, варианты — на немецком.
-Каждое упражнение должно использовать РАЗНЫЕ предложения. Не повторяйся!`;
+    task = `${questionsCount} упражнений: ${grammarTopic}, пропуск ___.${lexicalTopic ? ` Тема: ${lexicalTopic}.` : ''}
+display: предложение с ___. options: 4 варианта, 1 правильный.`;
   }
 
-  const prompt = `${taskDescription}
-
-Уровень CEFR: ${level}. Строго соблюдай уровень! Не используй грамматику и лексику выше ${level}.
-${excludeInstruction}
-
-КРИТИЧЕСКИЕ ПРАВИЛА:
-1. Правильный ответ ДОЛЖЕН быть грамматически БЕЗУПРЕЧНЫМ. Тройная проверка!
-2. Неправильные варианты должны быть ПРАВДОПОДОБНЫМИ, но содержать ЯСНУЮ грамматическую ошибку.
-3. Не должно быть двух правильных вариантов. Только ОДИН правильный.
-4. correct — индекс правильного ответа (0-3). Распределяй правильный ответ РАВНОМЕРНО по позициям 0, 1, 2, 3.
-5. Все ${questionsCount} предложений должны быть УНИКАЛЬНЫМИ и РАЗНООБРАЗНЫМИ.
-
-Ответь ТОЛЬКО валидным JSON-массивом без markdown, без пояснений. Формат:
-[
-  {
-    "text": "Инструкция на русском",
-    "display": "Немецкий текст задания",
-    "options": ["вариант1", "вариант2", "вариант3", "вариант4"],
-    "correct": 0
-  }
-]`;
+  const prompt = `Немецкая грамматика, ${level}. ${task}
+Длина предложений: ${sentenceLen}.
+text — задание на русском. correct — индекс (0-3), распределяй равномерно.
+Все предложения УНИКАЛЬНЫЕ, разнообразные, грамматически безупречные. Один правильный ответ.${excludeNote}
+JSON-массив без markdown:
+[{"text":"...","display":"...","options":["...","...","...","..."],"correct":0}]`;
 
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     });
 
     const text = message.content[0].text.trim();
-
-    // Parse JSON from response (handle possible markdown wrapping)
     let jsonStr = text;
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (jsonMatch) jsonStr = jsonMatch[0];
 
     const questions = JSON.parse(jsonStr);
-
-    // Validate structure
     const valid = questions.filter(q =>
       q.text && q.display && Array.isArray(q.options) &&
       q.options.length === 4 && typeof q.correct === 'number' &&
       q.correct >= 0 && q.correct <= 3
     );
 
-    res.json({ questions: valid });
+    // Store extras in server cache
+    if (valid.length > questionsCount) {
+      if (!questionPool[cacheKey]) questionPool[cacheKey] = [];
+      questionPool[cacheKey].push(...valid.slice(questionsCount));
+    }
+
+    res.json({ questions: valid.slice(0, questionsCount) });
   } catch (err) {
     console.error('Claude API error:', err.message);
     res.status(500).json({ error: 'Failed to generate questions', detail: err.message });
