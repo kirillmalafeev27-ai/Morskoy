@@ -20,7 +20,7 @@ app.post('/api/generate-questions', async (req, res) => {
     return res.status(400).json({ error: 'level and grammarTopic are required' });
   }
 
-  const questionsCount = count || 6;
+  const questionsCount = count || 12;
   const cacheKey = `${level}:${grammarTopic}:${lexicalTopic || ''}:${isWortstellung ? 'w' : 'g'}`;
 
   // Return from server cache if available
@@ -30,15 +30,6 @@ app.post('/api/generate-questions', async (req, res) => {
     return;
   }
 
-  // Sentence length guide per CEFR level
-  const lengthGuide = {
-    'A1': '3-5 слов, простые предложения (Ich bin müde. Er hat einen Hund.)',
-    'A2': '5-8 слов, простые распространённые предложения (Ich gehe morgen in die Schule.)',
-    'B1': '8-12 слов, сложносочинённые и сложноподчинённые (Ich weiß, dass er morgen nach Berlin fährt.)',
-    'B2': '10-15 слов, сложные конструкции (Obwohl er müde war, hat er das Buch zu Ende gelesen.)',
-  };
-  const sentenceLen = lengthGuide[level] || lengthGuide['A2'];
-
   // Short exclusion — send only display texts, max 10
   let excludeNote = '';
   if (exclude && exclude.length > 0) {
@@ -46,26 +37,47 @@ app.post('/api/generate-questions', async (req, res) => {
     excludeNote = `\nНЕ используй эти предложения: ${short}`;
   }
 
-  let task;
+  let taskDescription;
   if (isWortstellung) {
-    task = `${questionsCount} упражнений на Wortstellung (${grammarTopic}).${lexicalTopic ? ` Тема: ${lexicalTopic}.` : ''}
-display: слова через " / " в СЛУЧАЙНОМ порядке (НЕ правильном!). options: 4 полных предложения, 1 правильное.`;
+    taskDescription = `Создай ${questionsCount} упражнений на ПОРЯДОК СЛОВ (Wortstellung) в немецком языке.
+Грамматическая тема, которая должна быть использована в предложениях: ${grammarTopic}.
+${lexicalTopic ? `Лексическая тема: ${lexicalTopic}. Все предложения должны использовать слова из этой темы.` : ''}
+Формат: в поле "display" даны слова/фразы через " / " в ПЕРЕМЕШАННОМ (случайном) порядке — НЕ в правильном!
+Игрок должен угадать правильный порядок из 4 вариантов.
+Инструкция (text) должна быть на русском, варианты ответов — полные немецкие предложения.
+ВАЖНО: порядок слов в "display" ОБЯЗАН быть СЛУЧАЙНЫМ и НЕ должен совпадать с правильным ответом! Обязательно перемешай слова.
+Каждое упражнение должно использовать РАЗНЫЕ предложения. Не повторяйся!`;
   } else {
-    task = `${questionsCount} упражнений: ${grammarTopic}, пропуск ___.${lexicalTopic ? ` Тема: ${lexicalTopic}.` : ''}
-display: предложение с ___. options: 4 варианта, 1 правильный.`;
+    taskDescription = `Создай ${questionsCount} упражнений по немецкой грамматике.
+Грамматическая тема: ${grammarTopic}.
+${lexicalTopic ? `Лексическая тема: ${lexicalTopic}. Все предложения должны использовать слова из этой темы.` : ''}
+Формат: предложение с пропуском ___, нужно выбрать правильный вариант из 4.
+Инструкция (text) на русском, display — немецкое предложение с пропуском, варианты — на немецком.
+Каждое упражнение должно использовать РАЗНЫЕ предложения. Не повторяйся!`;
   }
 
-  const prompt = `Немецкая грамматика, ${level}. ${task}
-Длина предложений: ${sentenceLen}.
-text — задание на русском. correct — индекс (0-3), распределяй равномерно.
-Все предложения УНИКАЛЬНЫЕ, разнообразные, грамматически безупречные. Один правильный ответ.${excludeNote}
-JSON-массив без markdown:
-[{"text":"...","display":"...","options":["...","...","...","..."],"correct":0}]`;
+  const prompt = `Ты — опытный преподаватель немецкого языка. Создаёшь упражнения для учеников.
+
+${taskDescription}
+
+Уровень CEFR: ${level}. Строго соблюдай уровень! Не используй грамматику и лексику выше ${level}.
+${excludeNote}
+
+КРИТИЧЕСКИЕ ПРАВИЛА (нарушение = брак):
+1. Правильный ответ ДОЛЖЕН быть грамматически БЕЗУПРЕЧНЫМ. Перед выдачей мысленно проверь каждое предложение: подлежащее, сказуемое, падеж, род, число, порядок слов.
+2. Неправильные варианты должны содержать ОДНУ ЯСНУЮ ошибку (неверный падеж, артикль, окончание, порядок слов). Не делай абсурдных вариантов.
+3. РОВНО ОДИН правильный ответ. Если два варианта грамматически верны — это брак.
+4. correct — индекс правильного ответа (0-3). Распределяй РАВНОМЕРНО по позициям.
+5. Все ${questionsCount} предложений УНИКАЛЬНЫ: разные подлежащие, глаголы, ситуации. Никакого однообразия.
+6. Используй живые, естественные предложения как в учебниках Schritte, Menschen, Aspekte.
+
+Ответь ТОЛЬКО валидным JSON-массивом без markdown, без пояснений:
+[{"text":"Инструкция на русском","display":"Немецкий текст","options":["A","B","C","D"],"correct":0}]`;
 
   try {
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
     });
 

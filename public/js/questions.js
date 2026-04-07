@@ -149,7 +149,7 @@ class QuestionManager {
           lexicalTopic: this.lexicalTopic,
           grammarTopic: slotConfig.grammarTopic,
           isWortstellung: slotConfig.slotDef.isWortstellung || false,
-          count: 6,
+          count: 12,
           exclude: used,
         }),
       });
