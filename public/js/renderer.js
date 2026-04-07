@@ -14,6 +14,12 @@ class DungeonRenderer {
     this.modelsLoaded = false;
     this.loader = new THREE.GLTFLoader();
 
+    // Camera orbit
+    this.cameraAngle = 0; // horizontal orbit angle (radians)
+    this.cameraDragging = false;
+    this.cameraDragStartX = 0;
+    this.cameraDragStartAngle = 0;
+
     // Scene setup
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
@@ -73,6 +79,55 @@ class DungeonRenderer {
     this.animationId = null;
 
     window.addEventListener('resize', () => this._onResize());
+
+    // Camera orbit controls
+    this._initCameraControls();
+  }
+
+  _initCameraControls() {
+    const el = this.canvas;
+
+    // Desktop: right-click drag to orbit
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    el.addEventListener('mousedown', (e) => {
+      if (e.button === 2) { // right click
+        this.cameraDragging = true;
+        this.cameraDragStartX = e.clientX;
+        this.cameraDragStartAngle = this.cameraAngle;
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!this.cameraDragging) return;
+      const dx = e.clientX - this.cameraDragStartX;
+      this.cameraAngle = this.cameraDragStartAngle + dx * 0.005;
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 2) this.cameraDragging = false;
+    });
+
+    // Mobile: two-finger horizontal drag to orbit
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        this.cameraDragging = true;
+        this.cameraDragStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        this.cameraDragStartAngle = this.cameraAngle;
+      }
+    }, { passive: true });
+
+    el.addEventListener('touchmove', (e) => {
+      if (this.cameraDragging && e.touches.length === 2) {
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const dx = midX - this.cameraDragStartX;
+        this.cameraAngle = this.cameraDragStartAngle + dx * 0.008;
+      }
+    }, { passive: true });
+
+    el.addEventListener('touchend', () => {
+      this.cameraDragging = false;
+    }, { passive: true });
   }
 
   _initPostProcessing() {
@@ -550,9 +605,12 @@ class DungeonRenderer {
     const targetX = playerX * T;
     const targetZ = playerY * T;
 
-    const camTargetX = targetX;
-    const camTargetY = 20;
-    const camTargetZ = targetZ + 12;
+    // Orbit camera around player based on cameraAngle
+    const orbitDist = 12;
+    const orbitHeight = 20;
+    const camTargetX = targetX + Math.sin(this.cameraAngle) * orbitDist;
+    const camTargetY = orbitHeight;
+    const camTargetZ = targetZ + Math.cos(this.cameraAngle) * orbitDist;
 
     const lerp = instant ? 1.0 : 0.08;
     this.camera.position.x += (camTargetX - this.camera.position.x) * lerp;
