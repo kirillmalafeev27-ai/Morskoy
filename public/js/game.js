@@ -240,11 +240,18 @@ class Game {
 
     // Shuffle existing cache (so restarts don't repeat same order) and pre-fetch
     this.questionManager.shuffleAllCaches();
-    this.questionManager.prefetchAll().catch(e => console.warn('Prefetch failed:', e));
+    this._prefetchPromise = this.questionManager.prefetchAll().catch(e => console.warn('Prefetch failed:', e));
   }
 
-  _finishInit() {
+  async _finishInit() {
     if (this.state !== 'loading') return;
+
+    // Wait for questions to load before starting the game
+    if (this._prefetchPromise) {
+      await this._prefetchPromise;
+      this._prefetchPromise = null;
+    }
+
     this.state = 'topic_select';
 
     this.monsters.forEach(m => {
