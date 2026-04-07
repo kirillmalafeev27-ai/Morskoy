@@ -238,7 +238,8 @@ class Game {
     this.questionsCorrect = 0;
     this.state = 'loading';
 
-    // Pre-fetch questions in background
+    // Shuffle existing cache (so restarts don't repeat same order) and pre-fetch
+    this.questionManager.shuffleAllCaches();
     this.questionManager.prefetchAll().catch(e => console.warn('Prefetch failed:', e));
   }
 
@@ -328,6 +329,8 @@ class Game {
       this.audio.playCorrectAnswer();
       this._applyBonus(this.currentQuestion.slotDef.bonus);
       this._showFeedback(true, this.currentQuestion.options.options[this.currentQuestion.options.correctIndex]);
+      // Immediately fetch a replacement question for this slot
+      this.questionManager.onCorrectAnswer(this.currentSlotId);
 
       setTimeout(() => {
         if (this.state === 'lost' || this.state === 'won') return;

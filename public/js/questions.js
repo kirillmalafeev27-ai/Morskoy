@@ -104,6 +104,24 @@ class QuestionManager {
     return this._fallbackQuestion(slotConfig);
   }
 
+  // Called after correct answer — immediately fetch a replacement question
+  onCorrectAnswer(slotId) {
+    this._fetchForSlot(slotId); // fire and forget
+  }
+
+  // Shuffle all cached questions (call on game restart / new game)
+  shuffleAllCaches() {
+    for (const slotId of Object.keys(this.questionCache)) {
+      const arr = this.questionCache[slotId];
+      if (arr && arr.length > 1) {
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+      }
+    }
+  }
+
   async _fetchForSlot(slotId) {
     if (this.fetching[slotId]) return;
     this.fetching[slotId] = true;
@@ -129,7 +147,13 @@ class QuestionManager {
 
       if (data.questions && data.questions.length > 0) {
         if (!this.questionCache[slotId]) this.questionCache[slotId] = [];
-        this.questionCache[slotId].push(...data.questions);
+        // Shuffle new questions before adding to cache
+        const newQs = data.questions;
+        for (let i = newQs.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [newQs[i], newQs[j]] = [newQs[j], newQs[i]];
+        }
+        this.questionCache[slotId].push(...newQs);
       }
     } catch (err) {
       console.warn(`Failed to fetch questions for slot ${slotId}:`, err);
