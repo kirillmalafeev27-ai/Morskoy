@@ -574,7 +574,7 @@ class DungeonRenderer {
       // Scale to fit tile
       const box = new THREE.Box3().setFromObject(this.playerMesh);
       const size = box.getSize(new THREE.Vector3());
-      const charScale = (T * 0.8) / Math.max(size.x, size.z, 0.01);
+      const charScale = (T * 1.8) / Math.max(size.y, 0.01);
       this.playerMesh.scale.setScalar(charScale);
       this.playerMesh.position.set(x * T, 0, y * T);
       this.playerMesh.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
