@@ -108,11 +108,9 @@ class QuestionManager {
     return this._fallbackQuestion(slotConfig);
   }
 
-  // Called after correct answer — fetch replacement in background
+  // Called after correct answer — always fetch replacements in background
   onCorrectAnswer(slotId) {
-    if (!this.questionCache[slotId] || this.questionCache[slotId].length <= 5) {
-      this._fetchForSlot(slotId);
-    }
+    this._fetchForSlot(slotId);
   }
 
   // Shuffle all cached questions (call on game restart / new game)
