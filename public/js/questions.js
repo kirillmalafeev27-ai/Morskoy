@@ -56,13 +56,17 @@ class QuestionManager {
   }
 
   setLevel(level) {
-    this.level = level;
-    this.questionPool = {};
+    if (this.level !== level) {
+      this.level = level;
+      this.questionPool = {}; // level changed — pool invalid
+    }
   }
 
   setLexicalTopic(topic) {
-    this.lexicalTopic = topic;
-    this.questionPool = {};
+    if (this.lexicalTopic !== topic) {
+      this.lexicalTopic = topic;
+      this.questionPool = {}; // topic changed — pool invalid
+    }
   }
 
   configureSlots(slotConfigs) {
