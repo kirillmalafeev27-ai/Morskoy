@@ -241,7 +241,7 @@ class Game {
     this.state = 'loading';
 
     // Shuffle existing cache (so restarts don't repeat same order) and pre-fetch
-    this.questionManager.shuffleAllCaches();
+    this.questionManager.shuffleAllPools();
     this._prefetchPromise = this.questionManager.prefetchAll().catch(e => console.warn('Prefetch failed:', e));
   }
 
@@ -310,14 +310,13 @@ class Game {
     }
   }
 
-  async selectTopic(slotId) {
+  selectTopic(slotId) {
     if (this.state !== 'topic_select') return;
 
     this.currentSlotId = slotId;
     this.state = 'question';
 
-    // Show loading briefly if no cached questions
-    const question = await this.questionManager.getQuestion(slotId);
+    const question = this.questionManager.getQuestion(slotId);
     if (!question) {
       this.state = 'topic_select';
       return;
@@ -354,6 +353,8 @@ class Game {
     } else {
       this.audio.playWrongAnswer();
       this._showFeedback(false, this.currentQuestion.options.options[this.currentQuestion.options.correctIndex]);
+      // Wrong answer — put question back into pool for retry later
+      this.questionManager.onWrongAnswer(this.currentSlotId);
 
       setTimeout(() => {
         if (this.state === 'lost' || this.state === 'won') return;

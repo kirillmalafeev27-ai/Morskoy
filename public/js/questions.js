@@ -1,5 +1,5 @@
 // Question system powered by Claude API
-// Pre-fetches questions at game start, refills in background
+// One-time batch generation per topic, smart rotation during game
 
 // Grammar topics list
 const GRAMMAR_TOPICS = [
@@ -50,73 +50,74 @@ class QuestionManager {
   constructor(level) {
     this.level = level || 'A2';
     this.lexicalTopic = null;
-    this.questionCache = {}; // key: slotId -> array of questions
-    this.usedTexts = {};     // key: slotId -> Set of used question texts (prevent repeats)
-    this.fetchQueue = {};    // key: slotId -> number of pending fetches
+    this.questionPool = {};   // slotId -> array of remaining questions
+    this.fetching = {};       // slotId -> boolean
     this.slots = [];
   }
 
   setLevel(level) {
     this.level = level;
-    this.questionCache = {};
-    this.usedTexts = {};
+    this.questionPool = {};
   }
 
   setLexicalTopic(topic) {
     this.lexicalTopic = topic;
-    this.questionCache = {};
-    this.usedTexts = {};
+    this.questionPool = {};
   }
 
   configureSlots(slotConfigs) {
     this.slots = slotConfigs;
-    this.questionCache = {};
-    this.usedTexts = {};
-    this.fetchQueue = {};
+    // Don't clear pools here — they persist across games until exhausted
   }
 
-  // Pre-fetch questions for all configured slots
+  // Fetch 30 questions for slots that have no pool yet
   async prefetchAll() {
-    const promises = this.slots.map(slot => this._fetchForSlot(slot.slotDef.id));
+    const promises = this.slots
+      .filter(slot => !this.questionPool[slot.slotDef.id] || this.questionPool[slot.slotDef.id].length === 0)
+      .map(slot => this._fetchForSlot(slot.slotDef.id));
     await Promise.allSettled(promises);
   }
 
-  // Get a question for a specific slot
-  async getQuestion(slotId) {
+  // Get next question for a slot
+  getQuestion(slotId) {
     const slotConfig = this.slots.find(s => s.slotDef.id === slotId);
     if (!slotConfig) return null;
 
-    // Try cache first
-    if (this.questionCache[slotId] && this.questionCache[slotId].length > 0) {
-      const q = this.questionCache[slotId].shift();
-      // Refetch in background if running low
-      if (this.questionCache[slotId].length <= 3) {
-        this._fetchForSlot(slotId);
-      }
-      return this._formatQuestion(q, slotConfig);
-    }
+    const pool = this.questionPool[slotId];
+    if (!pool || pool.length === 0) return this._fallbackQuestion(slotConfig);
 
-    // No cache, must fetch
-    await this._fetchForSlot(slotId);
-
-    if (this.questionCache[slotId] && this.questionCache[slotId].length > 0) {
-      const q = this.questionCache[slotId].shift();
-      return this._formatQuestion(q, slotConfig);
-    }
-
-    // API failed — return a fallback question
-    return this._fallbackQuestion(slotConfig);
+    // Take first question from pool
+    const q = pool.shift();
+    // Store it temporarily so we can put it back on wrong answer
+    this._lastQuestion = { slotId, question: q };
+    return this._formatQuestion(q, slotConfig);
   }
 
-  // Called after correct answer — always fetch replacements in background
+  // Correct answer — question is gone (already removed from pool by shift)
   onCorrectAnswer(slotId) {
-    this._fetchForSlot(slotId);
+    this._lastQuestion = null;
+    // If pool is now empty, trigger background refetch for next game
+    if (!this.questionPool[slotId] || this.questionPool[slotId].length === 0) {
+      this._fetchForSlot(slotId);
+    }
   }
 
-  // Shuffle all cached questions (call on game restart / new game)
-  shuffleAllCaches() {
-    for (const slotId of Object.keys(this.questionCache)) {
-      const arr = this.questionCache[slotId];
+  // Wrong answer — put question back into pool at random position
+  onWrongAnswer(slotId) {
+    if (this._lastQuestion && this._lastQuestion.slotId === slotId) {
+      const pool = this.questionPool[slotId];
+      if (pool) {
+        const pos = Math.floor(Math.random() * (pool.length + 1));
+        pool.splice(pos, 0, this._lastQuestion.question);
+      }
+      this._lastQuestion = null;
+    }
+  }
+
+  // Shuffle pools on new game (so order is fresh each game)
+  shuffleAllPools() {
+    for (const slotId of Object.keys(this.questionPool)) {
+      const arr = this.questionPool[slotId];
       if (arr && arr.length > 1) {
         for (let i = arr.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -124,21 +125,19 @@ class QuestionManager {
         }
       }
     }
-    // Clear used texts on restart so questions can appear again
-    this.usedTexts = {};
+  }
+
+  // Returns count of remaining questions per slot (for UI if needed)
+  getPoolSize(slotId) {
+    return (this.questionPool[slotId] || []).length;
   }
 
   async _fetchForSlot(slotId) {
-    // Allow max 2 concurrent fetches per slot
-    if (!this.fetchQueue[slotId]) this.fetchQueue[slotId] = 0;
-    if (this.fetchQueue[slotId] >= 2) return;
-    this.fetchQueue[slotId]++;
+    if (this.fetching[slotId]) return;
+    this.fetching[slotId] = true;
 
     const slotConfig = this.slots.find(s => s.slotDef.id === slotId);
-    if (!slotConfig) { this.fetchQueue[slotId]--; return; }
-
-    // Build list of used texts to send as exclusion
-    const used = this.usedTexts[slotId] ? Array.from(this.usedTexts[slotId]).slice(-10) : [];
+    if (!slotConfig) { this.fetching[slotId] = false; return; }
 
     try {
       const resp = await fetch('/api/generate-questions', {
@@ -149,8 +148,7 @@ class QuestionManager {
           lexicalTopic: this.lexicalTopic,
           grammarTopic: slotConfig.grammarTopic,
           isWortstellung: slotConfig.slotDef.isWortstellung || false,
-          count: 12,
-          exclude: used,
+          count: 30,
         }),
       });
 
@@ -158,33 +156,22 @@ class QuestionManager {
       const data = await resp.json();
 
       if (data.questions && data.questions.length > 0) {
-        if (!this.questionCache[slotId]) this.questionCache[slotId] = [];
-        if (!this.usedTexts[slotId]) this.usedTexts[slotId] = new Set();
-
-        // Filter out questions we've already seen
-        const newQs = data.questions.filter(q => !this.usedTexts[slotId].has(q.display));
-
-        // Track these as used
-        for (const q of newQs) {
-          this.usedTexts[slotId].add(q.display);
-        }
-
-        // Shuffle new questions
-        for (let i = newQs.length - 1; i > 0; i--) {
+        // Shuffle received questions
+        const qs = data.questions;
+        for (let i = qs.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
-          [newQs[i], newQs[j]] = [newQs[j], newQs[i]];
+          [qs[i], qs[j]] = [qs[j], qs[i]];
         }
-        this.questionCache[slotId].push(...newQs);
+        this.questionPool[slotId] = qs;
       }
     } catch (err) {
       console.warn(`Failed to fetch questions for slot ${slotId}:`, err);
     }
 
-    this.fetchQueue[slotId]--;
+    this.fetching[slotId] = false;
   }
 
   _formatQuestion(rawQ, slotConfig) {
-    // Shuffle options
     const correctAnswer = rawQ.options[rawQ.correct];
     const shuffled = [...rawQ.options];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -211,7 +198,7 @@ class QuestionManager {
       slotDef: slotConfig.slotDef,
       grammarTopic: grammar,
       text: `Übung: ${grammar}`,
-      display: `[Загрузка упражнения не удалась. Бонус выдан автоматически.]`,
+      display: `[Упражнения закончились. Бонус выдан автоматически.]`,
       options: { options: ['OK', '—', '—', '—'], correctIndex: 0 },
       level: this.level,
     };
