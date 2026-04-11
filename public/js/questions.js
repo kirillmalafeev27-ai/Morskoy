@@ -5,7 +5,7 @@
 const GRAMMAR_TOPICS = [
   // Verben
   'Präsens', 'Perfekt', 'Präteritum', 'Futur I', 'Imperativ',
-  'Modalverben', 'Trennbare Verben', 'Reflexive Verben',
+  'Modalverben', 'Modalverben müssen wollen', 'Trennbare Verben', 'Reflexive Verben',
   'Verben mit Präpositionen', 'Lassen',
   // Nomen & Artikel
   'Artikel', 'Nominativ', 'Akkusativ', 'Dativ', 'Genitiv',
