@@ -21,7 +21,6 @@ function buildCacheKey(level, grammarTopic, lexicalTopic, isWortstellung) {
 }
 
 function extractText(message) {
-  // With extended thinking, content contains thinking blocks + text blocks
   const textBlock = (message.content || []).find(b => b.type === 'text');
   return textBlock ? textBlock.text.trim() : '';
 }
@@ -70,8 +69,7 @@ ${itemList}
   try {
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 16000,
-      thinking: { type: 'enabled', budget_tokens: 8000 },
+      max_tokens: 4096,
       messages: [{ role: 'user', content: verifierPrompt }],
     });
 
@@ -160,8 +158,7 @@ ${excludeNote}
   try {
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 16000,
-      thinking: { type: 'enabled', budget_tokens: 6000 },
+      max_tokens: 8192,
       messages: [{ role: 'user', content: prompt }],
     });
 
