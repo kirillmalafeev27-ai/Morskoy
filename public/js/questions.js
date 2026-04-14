@@ -53,12 +53,14 @@ class QuestionManager {
     this.questionPool = {};   // slotId -> array of remaining questions
     this.fetching = {};       // slotId -> boolean
     this.slots = [];
+    this._initialFetchDone = false; // one-shot flag — prefetchAll runs only once per topic/level
   }
 
   setLevel(level) {
     if (this.level !== level) {
       this.level = level;
       this.questionPool = {}; // level changed — pool invalid
+      this._initialFetchDone = false;
     }
   }
 
@@ -66,20 +68,34 @@ class QuestionManager {
     if (this.lexicalTopic !== topic) {
       this.lexicalTopic = topic;
       this.questionPool = {}; // topic changed — pool invalid
+      this._initialFetchDone = false;
     }
   }
 
   configureSlots(slotConfigs) {
+    // If slot grammar topics changed, invalidate pools for those slots
+    const prev = this.slots || [];
+    for (const newCfg of slotConfigs) {
+      const prevCfg = prev.find(p => p.slotDef.id === newCfg.slotDef.id);
+      if (prevCfg && prevCfg.grammarTopic !== newCfg.grammarTopic) {
+        delete this.questionPool[newCfg.slotDef.id];
+        this._initialFetchDone = false;
+      }
+    }
     this.slots = slotConfigs;
-    // Don't clear pools here — they persist across games until exhausted
+    // Don't clear pools here (unless grammar changed) — they persist across restarts until exhausted
   }
 
-  // Fetch 30 questions for slots that have no pool yet
+  // Fetch 30 questions for all slots. Runs ONCE per game session (per level/topic).
+  // After death, this is a no-op — no API calls on restart.
+  // New fetches happen only when a slot's pool is exhausted (see onCorrectAnswer).
   async prefetchAll() {
+    if (this._initialFetchDone) return;
     const promises = this.slots
       .filter(slot => !this.questionPool[slot.slotDef.id] || this.questionPool[slot.slotDef.id].length === 0)
       .map(slot => this._fetchForSlot(slot.slotDef.id));
     await Promise.allSettled(promises);
+    this._initialFetchDone = true;
   }
 
   // Get next question for a slot
@@ -104,6 +120,37 @@ class QuestionManager {
     if (!this.questionPool[slotId] || this.questionPool[slotId].length === 0) {
       this._fetchForSlot(slotId);
     }
+  }
+
+  // User flagged current question as broken — drop it permanently and tell server
+  reportCurrentQuestion() {
+    if (!this._lastQuestion) return null;
+    const { slotId, question } = this._lastQuestion;
+
+    // Make sure it's out of the pool (it was already shifted, but in case of edge paths)
+    const pool = this.questionPool[slotId];
+    if (pool) {
+      const idx = pool.indexOf(question);
+      if (idx >= 0) pool.splice(idx, 1);
+    }
+
+    const slotConfig = this.slots.find(s => s.slotDef.id === slotId);
+    const payload = {
+      level: this.level,
+      lexicalTopic: this.lexicalTopic,
+      grammarTopic: slotConfig ? slotConfig.grammarTopic : null,
+      isWortstellung: slotConfig ? !!slotConfig.slotDef.isWortstellung : false,
+      display: question.display,
+    };
+
+    fetch('/api/report-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(err => console.warn('Failed to report question:', err));
+
+    this._lastQuestion = null;
+    return slotId;
   }
 
   // Wrong answer — put question back into pool at random position
@@ -160,8 +207,16 @@ class QuestionManager {
       const data = await resp.json();
 
       if (data.questions && data.questions.length > 0) {
+        // Extra safety: drop questions with duplicate options (shouldn't happen,
+        // but guards against the "no correct answer" UX when the LLM slips up).
+        const qs = data.questions.filter(q =>
+          Array.isArray(q.options) &&
+          q.options.length === 4 &&
+          new Set(q.options).size === 4 &&
+          typeof q.correct === 'number' &&
+          q.correct >= 0 && q.correct <= 3
+        );
         // Shuffle received questions
-        const qs = data.questions;
         for (let i = qs.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [qs[i], qs[j]] = [qs[j], qs[i]];

@@ -252,6 +252,11 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBtn.addEventListener('click', handler);
   }
 
+  // ===== REPORT BAD QUESTION =====
+  document.getElementById('report-question-btn').addEventListener('click', () => {
+    game.reportCurrentQuestion();
+  });
+
   // ===== DIRECTION BUTTONS =====
   document.querySelectorAll('.dir-btn').forEach(btn => {
     btn.addEventListener('click', () => {

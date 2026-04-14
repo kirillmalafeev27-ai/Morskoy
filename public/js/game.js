@@ -590,6 +590,8 @@ class Game {
       btn.textContent = opt;
       btn.addEventListener('click', () => {
         optionsDiv.querySelectorAll('.option-btn').forEach(b => b.disabled = true);
+        const reportBtn = document.getElementById('report-question-btn');
+        if (reportBtn) reportBtn.disabled = true;
         btn.classList.add(i === correctIndex ? 'correct' : 'wrong');
         if (i !== correctIndex) optionsDiv.children[correctIndex].classList.add('correct');
         this.answerQuestion(i);
@@ -597,7 +599,20 @@ class Game {
       optionsDiv.appendChild(btn);
     });
 
+    // Reset report button state
+    const reportBtn = document.getElementById('report-question-btn');
+    if (reportBtn) reportBtn.disabled = false;
+
     document.getElementById('question-feedback').classList.add('hidden');
+  }
+
+  reportCurrentQuestion() {
+    if (this.state !== 'question' || !this.currentQuestion) return;
+    this.questionManager.reportCurrentQuestion();
+    this.currentQuestion = null;
+    this.currentSlotId = null;
+    this.state = 'topic_select';
+    this._showTopicPanel();
   }
 
   _showFeedback(isCorrect, correctAnswer) {

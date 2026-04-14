@@ -468,6 +468,24 @@ body {
 #question-feedback.correct { background: #0a2a0a; border: 1px solid #00cc44; color: #00cc44; }
 #question-feedback.wrong { background: #2a0a0a; border: 1px solid #cc0000; color: #cc0000; }
 
+#report-question-btn {
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid #555;
+  color: #999;
+  border-radius: 6px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+#report-question-btn:hover:not(:disabled) {
+  border-color: #cc8800;
+  color: #ffaa33;
+  background: rgba(204,136,0,0.08);
+}
+#report-question-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* Direction panel */
 #direction-panel {
   position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
