@@ -13,6 +13,51 @@ const anthropic = new Anthropic();
 // Server-side question cache to avoid duplicate API calls
 const questionPool = {}; // key: "level:grammar:lexical" -> array of questions
 
+async function validateQuestions(questions, level, grammarTopic, isWortstellung) {
+  if (!questions.length) return questions;
+
+  const exerciseType = isWortstellung
+    ? 'Wortstellung: "display" zeigt Wörter in zufälliger Reihenfolge, options[correct] ist die richtige Reihenfolge'
+    : 'Lückenübung: "display" hat ___ als Lücke, options[correct] füllt sie korrekt';
+
+  const prompt = `Du bist ein strenger Prüfer für deutsche Grammatikübungen (Niveau ${level}).
+Grammatikthema: ${grammarTopic}. Typ: ${exerciseType}.
+
+Prüfe JEDE Übung:
+1. Setze options[correct] in den Satz ein — ist das Ergebnis grammatisch EINWANDFREI? Prüfe Kasus, Genus, Numerus, Verbkonjugation, Wortstellung.
+2. Sind alle 3 falschen Optionen tatsächlich FALSCH? Gibt es eine zweite korrekte Option — dann ist die Übung fehlerhaft.
+3. Passt die Übung zum Thema "${grammarTopic}" und Niveau ${level}?
+
+Wenn du unsicher bist, ob eine Übung korrekt ist — melde sie als fehlerhaft.
+
+Antworte NUR mit einem JSON-Array der Indizes fehlerhafter Übungen. Wenn alles korrekt: []
+Beispiel: [0,4,12]
+
+Übungen:
+${JSON.stringify(questions)}`;
+
+  try {
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 256,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = msg.content[0].text.trim();
+    const match = text.match(/\[[\d,\s]*\]/);
+    if (!match) return questions;
+
+    const bad = new Set(JSON.parse(match[0]));
+    if (bad.size > 0) {
+      console.log(`Validation: removed ${bad.size}/${questions.length} questions (indices: ${[...bad].join(',')})`);
+    }
+    return questions.filter((_, i) => !bad.has(i));
+  } catch (err) {
+    console.error('Validation error:', err.message);
+    return questions;
+  }
+}
+
 app.post('/api/generate-questions', async (req, res) => {
   const { level, lexicalTopic, grammarTopic, isWortstellung, count, exclude } = req.body;
 
@@ -89,11 +134,13 @@ ${excludeNote}
     if (jsonMatch) jsonStr = jsonMatch[0];
 
     const questions = JSON.parse(jsonStr);
-    const valid = questions.filter(q =>
+    const structValid = questions.filter(q =>
       q.text && q.display && Array.isArray(q.options) &&
       q.options.length === 4 && typeof q.correct === 'number' &&
       q.correct >= 0 && q.correct <= 3
     );
+
+    const valid = await validateQuestions(structValid, level, grammarTopic, isWortstellung);
 
     // Store extras in server cache
     if (valid.length > questionsCount) {
