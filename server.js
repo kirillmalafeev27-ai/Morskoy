@@ -73,9 +73,11 @@ Richtig: "Ich bleibe zu Hause, weil ich krank bin." | Falsch: "Ich bleibe zu Hau
   'wenn-Sätze': `"wenn" + Verb am Ende. Hauptsatz nach wenn-Satz: Verb auf Position 1.
 Richtig: "Wenn es regnet, bleibe ich zu Hause." | Falsch: "Wenn es regnet, ich bleibe zu Hause."`,
 
-  'Relativsätze': `Relativpronomen: Genus/Numerus vom Bezugswort, Kasus von der Funktion im Relativsatz. Verb am Ende.
+  'Relativsätze': `Relativpronomen: Genus/Numerus vom BEZUGSWORT, aber Kasus von der FUNKTION im Nebensatz!
+Bestimme den Kasus: Was ist die Rolle des Relativpronomens im Nebensatz? Subjekt→Nom, direktes Objekt→Akk, indirektes Objekt→Dat.
 Nom: der/die/das/die. Akk: den/die/das/die. Dat: dem/der/dem/denen. Gen: dessen/deren.
-Richtig: "Der Mann, den ich gesehen habe, ist mein Nachbar."`,
+Richtig: "Der Turm, den man sehen kann" (Akk! weil: man sieht DEN Turm). Falsch: "Der Turm, dem man sehen kann."
+Richtig: "Der Mann, dem ich helfe" (Dat! weil: ich helfe DEM Mann). Verb am Ende des Relativsatzes!`,
 
   'Konjunktiv II': `Irreale Wünsche, höfliche Bitten, Ratschläge.
 würde + Infinitiv (Standard). Eigene Formen: wäre, hätte, könnte, müsste, sollte, dürfte, wüsste, käme, ginge, bräuchte.
@@ -180,22 +182,13 @@ Antworte NUR mit einem validen JSON-Array, KEIN Markdown, KEINE Erklärungen:
   try {
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 16000,
-      thinking: {
-        type: 'enabled',
-        budget_tokens: 4096,
-      },
+      max_tokens: 8192,
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const textBlock = message.content.find(b => b.type === 'text');
-    if (!textBlock) {
-      return res.status(500).json({ error: 'No text in API response' });
-    }
-
-    const rawText = textBlock.text.trim();
-    let jsonStr = rawText;
-    const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+    const text = message.content[0].text.trim();
+    let jsonStr = text;
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (jsonMatch) jsonStr = jsonMatch[0];
 
     const questions = JSON.parse(jsonStr);
