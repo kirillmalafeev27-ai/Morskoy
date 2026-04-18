@@ -9,3 +9,5 @@ services:
         value: production
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: AITUNNEL_API_KEY
+        sync: false

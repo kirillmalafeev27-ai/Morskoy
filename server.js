@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,7 +8,10 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const anthropic = new Anthropic();
+const client = new OpenAI({
+  apiKey: process.env.AITUNNEL_API_KEY,
+  baseURL: 'https://api.aitunnel.ru/v1',
+});
 
 const questionPool = {};
 
@@ -180,13 +183,13 @@ Antworte NUR mit einem validen JSON-Array, KEIN Markdown, KEINE Erklärungen:
 [{"text":"Инструкция на русском","display":"Deutscher Text","options":["A","B","C","D"],"correct":0}]`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 8192,
+    const completion = await client.chat.completions.create({
+      model: 'gpt-5.4',
+      max_completion_tokens: 8192,
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const text = message.content[0].text.trim();
+    const text = completion.choices[0].message.content.trim();
     let jsonStr = text;
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (jsonMatch) jsonStr = jsonMatch[0];
@@ -205,7 +208,7 @@ Antworte NUR mit einem validen JSON-Array, KEIN Markdown, KEINE Erklärungen:
 
     res.json({ questions: valid.slice(0, questionsCount) });
   } catch (err) {
-    console.error('Claude API error:', err.message);
+    console.error('AI Tunnel API error:', err.message);
     res.status(500).json({ error: 'Failed to generate questions', detail: err.message });
   }
 });
