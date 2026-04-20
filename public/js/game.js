@@ -76,6 +76,7 @@ class Game {
     // Settings
     this.isCreepy = true;
     this.monsterCountSetting = 1;
+    this.difficulty = 'medium';
     this.langLevel = 'A2';
     this.playerName = '';
     this.lexicalTopic = null;
@@ -145,6 +146,7 @@ class Game {
   async init(settings) {
     this.isCreepy = settings.isCreepy;
     this.monsterCountSetting = settings.monsterCount;
+    this.difficulty = settings.difficulty || 'medium';
     this.langLevel = settings.langLevel;
     this.playerName = settings.playerName || 'Unknown';
     this.currentLevel = settings.level || 1;
@@ -190,11 +192,13 @@ class Game {
     const monsterCells = shuffledFar.filter(c =>
       !this.treasures.some(t => t.x === c.x && t.y === c.y)
     );
+    const difficultyIntervals = { easy: 10000, medium: 8000, hard: 6000 };
+    const monsterInterval = difficultyIntervals[this.difficulty] ?? difficultyIntervals.medium;
     for (let i = 0; i < monsterCount && i + this.totalTreasures < monsterCells.length; i++) {
       const cell = monsterCells[i + this.totalTreasures];
       if (!cell) continue;
       const monster = new Monster(cell.x, cell.y, this.mazeGen);
-      monster.moveInterval = lvlCfg.monsterSpeed;
+      monster.moveInterval = monsterInterval;
       this.monsters.push(monster);
     }
 
@@ -525,6 +529,7 @@ class Game {
     this.init({
       isCreepy: this.isCreepy,
       monsterCount: this.monsterCountSetting,
+      difficulty: this.difficulty,
       langLevel: this.langLevel,
       playerName: this.playerName,
       level: this.currentLevel,

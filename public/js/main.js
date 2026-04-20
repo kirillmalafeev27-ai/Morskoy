@@ -218,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const settings = {
       isCreepy: document.getElementById('creepy-mode').checked,
       monsterCount: parseInt(document.getElementById('monster-count').value),
+      difficulty: document.getElementById('difficulty').value,
       langLevel: selectedLevel,
       playerName,
       level: 1,
@@ -354,6 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
     game.init({
       isCreepy: game.isCreepy,
       monsterCount: game.monsterCountSetting,
+      difficulty: game.difficulty,
       langLevel: game.langLevel,
       playerName: game.playerName,
       level: game.currentLevel,
