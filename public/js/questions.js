@@ -74,7 +74,7 @@ class QuestionManager {
     // Don't clear pools here — they persist across games until exhausted
   }
 
-  // Fetch 30 questions for slots that have no pool yet
+  // Fetch 10 questions for slots that have no pool yet
   async prefetchAll() {
     const promises = this.slots
       .filter(slot => !this.questionPool[slot.slotDef.id] || this.questionPool[slot.slotDef.id].length === 0)
@@ -152,7 +152,7 @@ class QuestionManager {
           lexicalTopic: this.lexicalTopic,
           grammarTopic: slotConfig.grammarTopic,
           isWortstellung: slotConfig.slotDef.isWortstellung || false,
-          count: 30,
+          count: 10,
         }),
       });
 

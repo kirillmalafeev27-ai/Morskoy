@@ -115,7 +115,7 @@ app.post('/api/generate-questions', async (req, res) => {
     return res.status(400).json({ error: 'level and grammarTopic are required' });
   }
 
-  const questionsCount = count || 30;
+  const questionsCount = count || 10;
   const cacheKey = `${level}:${grammarTopic}:${lexicalTopic || ''}:${isWortstellung ? 'w' : 'g'}`;
 
   if (questionPool[cacheKey] && questionPool[cacheKey].length >= questionsCount) {
