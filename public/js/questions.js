@@ -41,10 +41,14 @@ const LEXICAL_TOPICS = [
 const BONUS_SLOTS = [
   { id: 'wortstellung', bonus: 'move2', bonusLabel: '2 хода', name: 'Wortstellung', isWortstellung: true, fixed: true },
   { id: 'slot2', bonus: 'move1', bonusLabel: '+1 ход', name: null },
-  { id: 'slot3', bonus: 'vision', bonusLabel: 'Расш. зрение', name: null },
+  { id: 'slot3', bonus: 'camouflage', bonusLabel: 'Маскировка', name: null },
   { id: 'slot4', bonus: 'bait', bonusLabel: 'Приманка', name: null },
   { id: 'slot5', bonus: 'reveal', bonusLabel: 'Показать монстра', name: null },
 ];
+
+// Camouflage config: 5 player turns of invisibility, 3-minute cooldown
+const CAMOUFLAGE_TURNS = 5;
+const CAMOUFLAGE_COOLDOWN_MS = 3 * 60 * 1000;
 
 class QuestionManager {
   constructor(level) {

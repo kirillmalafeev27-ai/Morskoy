@@ -24,6 +24,14 @@
           </div>
 
           <div class="option-group">
+            <label>Режим игры:</label>
+            <select id="game-mode">
+              <option value="classic" selected>Классический (сбор сокровищ)</option>
+              <option value="chase">Догонялки (побег от хищника)</option>
+            </select>
+          </div>
+
+          <div class="option-group" id="monster-count-group">
             <label>Монстры:</label>
             <select id="monster-count">
               <option value="1">Один монстр</option>
@@ -110,7 +118,7 @@
             <div class="slot-grammar"></div>
           </div>
           <div class="bonus-slot empty" data-slot="2">
-            <div class="slot-bonus">Расш. зрение</div>
+            <div class="slot-bonus">Маскировка</div>
             <div class="slot-topic">Пусто</div>
             <div class="slot-grammar"></div>
           </div>
@@ -156,7 +164,7 @@
       </div>
       <div class="tutorial-step">
         <span class="step-icon">4.</span>
-        Соберите <strong>3 сокровища</strong> до того, как монстр вас настигнет
+        <strong>Классический режим</strong>: соберите 3 сокровища. <strong>Догонялки</strong>: выживайте, отвечая на вопросы, пока хищник вас не поймал
       </div>
       <div class="tutorial-step">
         <span class="step-icon">!</span>
@@ -164,7 +172,11 @@
       </div>
       <div class="tutorial-step">
         <span class="step-icon">?</span>
-        Вы видите только <strong>2 клетки</strong> вокруг. Слушайте — монстр рычит громче рядом
+        Все видят только <strong>2 клетки</strong> вокруг. Слушайте — монстр рычит громче рядом
+      </div>
+      <div class="tutorial-step">
+        <span class="step-icon">&#x1F977;</span>
+        <strong>Маскировка</strong>: 5 ходов невидимости, хищник бродит случайно и может наткнуться. Откат 3 минуты
       </div>
       <button id="tutorial-close" class="btn-primary">ПОНЯТНО!</button>
     </div>
@@ -181,6 +193,10 @@
       <div id="treasure-counter">
         <span class="hud-icon">&#x1F48E;</span>
         <span id="treasure-count">0</span> / 3
+      </div>
+      <div id="chase-counter" class="hidden">
+        <span class="hud-icon">&#x1F3C3;</span>
+        <span id="chase-progress">0</span> / <span id="chase-target">8</span>
       </div>
       <div id="level-display">&#x0423;&#x0440;&#x043E;&#x0432;&#x0435;&#x043D;&#x044C; <span id="level-num">1</span></div>
       <div id="status-effects"></div>

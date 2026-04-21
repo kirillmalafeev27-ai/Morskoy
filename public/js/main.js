@@ -32,6 +32,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('to-step2-btn').addEventListener('click', () => showStep(2));
   document.getElementById('back-to-step1').addEventListener('click', () => showStep(1));
 
+  // Chase mode forces a single predator — hide the monster-count option in that case.
+  const gameModeEl = document.getElementById('game-mode');
+  const monsterCountGroup = document.getElementById('monster-count-group');
+  function _syncMonsterCountVisibility() {
+    if (gameModeEl.value === 'chase') {
+      monsterCountGroup.classList.add('hidden');
+    } else {
+      monsterCountGroup.classList.remove('hidden');
+    }
+  }
+  gameModeEl.addEventListener('change', _syncMonsterCountVisibility);
+  _syncMonsterCountVisibility();
+
   // Step 2 -> 3 (level selection)
   document.querySelectorAll('.level-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -219,6 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
       isCreepy: document.getElementById('creepy-mode').checked,
       monsterCount: parseInt(document.getElementById('monster-count').value),
       difficulty: document.getElementById('difficulty').value,
+      gameMode: document.getElementById('game-mode').value,
       langLevel: selectedLevel,
       playerName,
       level: 1,
@@ -356,6 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
       isCreepy: game.isCreepy,
       monsterCount: game.monsterCountSetting,
       difficulty: game.difficulty,
+      gameMode: game.gameMode,
       langLevel: game.langLevel,
       playerName: game.playerName,
       level: game.currentLevel,

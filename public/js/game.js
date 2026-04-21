@@ -81,6 +81,7 @@ class Game {
     this.playerName = '';
     this.lexicalTopic = null;
     this.slotConfigs = []; // { slotDef, grammarTopic }
+    this.gameMode = 'classic'; // 'classic' | 'chase'
 
     // Level
     this.currentLevel = 1;
@@ -94,6 +95,10 @@ class Game {
     this.questionsAnswered = 0;
     this.questionsCorrect = 0;
 
+    // Chase mode progress (correct answers needed to escape)
+    this.chaseProgress = 0;
+    this.chaseTarget = 8;
+
     // Monsters
     this.monsters = [];
 
@@ -101,11 +106,13 @@ class Game {
     this.treasures = [];
 
     // Effects
-    this.expandedVisionTurns = 0;
+    this.camouflageTurns = 0;
+    this.camouflageCooldownUntil = 0; // timestamp in ms; 0 = ready
     this.monsterRevealed = false;
     this.revealTurns = 0;
     this.currentSlotId = null;
     this.currentQuestion = null;
+    this._topicPanelTimer = null;
 
     // Touch/swipe
     this.touchStartX = 0;
@@ -152,6 +159,7 @@ class Game {
     this.currentLevel = settings.level || 1;
     this.lexicalTopic = settings.lexicalTopic || null;
     this.slotConfigs = settings.slotConfigs || [];
+    this.gameMode = settings.gameMode || 'classic';
 
     if (!this.isCreepy) {
       document.body.classList.add('calm-mode');
@@ -167,39 +175,58 @@ class Game {
     this.maze = this.mazeGen.generate();
 
     const pathCells = this.mazeGen.getPathCells();
+    const isChase = this.gameMode === 'chase';
 
-    // Place player
+    // Place player at (1,1)
     this.playerX = 1;
     this.playerY = 1;
 
-    // Place treasures
+    // Treasures — only in classic mode
     this.treasures = [];
-    this.totalTreasures = lvlCfg.treasures;
+    this.totalTreasures = isChase ? 0 : lvlCfg.treasures;
     const farCells = pathCells.filter(c =>
       Math.abs(c.x - this.playerX) + Math.abs(c.y - this.playerY) > 8
     );
     const shuffledFar = this._shuffle([...farCells]);
-    for (let i = 0; i < this.totalTreasures && i < shuffledFar.length; i++) {
-      this.treasures.push({ x: shuffledFar[i].x, y: shuffledFar[i].y, collected: false });
+    if (!isChase) {
+      for (let i = 0; i < this.totalTreasures && i < shuffledFar.length; i++) {
+        this.treasures.push({ x: shuffledFar[i].x, y: shuffledFar[i].y, collected: false });
+      }
     }
 
-    // Monster count
-    const monsterCount = Math.max(lvlCfg.monsters, this.monsterCountSetting);
+    // Monster count — chase mode always has exactly one predator
+    const monsterCount = isChase
+      ? 1
+      : Math.max(lvlCfg.monsters, this.monsterCountSetting);
 
     // Place monsters
     this.monsters.forEach(m => m.stop());
     this.monsters = [];
-    const monsterCells = shuffledFar.filter(c =>
-      !this.treasures.some(t => t.x === c.x && t.y === c.y)
-    );
     const difficultyIntervals = { easy: 10000, medium: 8000, hard: 6000 };
     const monsterInterval = difficultyIntervals[this.difficulty] ?? difficultyIntervals.medium;
-    for (let i = 0; i < monsterCount && i + this.totalTreasures < monsterCells.length; i++) {
-      const cell = monsterCells[i + this.totalTreasures];
-      if (!cell) continue;
-      const monster = new Monster(cell.x, cell.y, this.mazeGen);
-      monster.moveInterval = monsterInterval;
-      this.monsters.push(monster);
+
+    if (isChase) {
+      // Predator spawns at the opposite corner of the maze.
+      const cornerCell = this._findNearestPathCell(
+        this.mazeGen.width - 2,
+        this.mazeGen.height - 2
+      );
+      if (cornerCell) {
+        const monster = new Monster(cornerCell.x, cornerCell.y, this.mazeGen);
+        monster.moveInterval = monsterInterval;
+        this.monsters.push(monster);
+      }
+    } else {
+      const monsterCells = shuffledFar.filter(c =>
+        !this.treasures.some(t => t.x === c.x && t.y === c.y)
+      );
+      for (let i = 0; i < monsterCount && i + this.totalTreasures < monsterCells.length; i++) {
+        const cell = monsterCells[i + this.totalTreasures];
+        if (!cell) continue;
+        const monster = new Monster(cell.x, cell.y, this.mazeGen);
+        monster.moveInterval = monsterInterval;
+        this.monsters.push(monster);
+      }
     }
 
     // Init renderer
@@ -237,12 +264,15 @@ class Game {
     // Reset state
     this.treasuresCollected = 0;
     this.movesLeft = 0;
-    this.expandedVisionTurns = 0;
+    this.camouflageTurns = 0;
+    this.camouflageCooldownUntil = 0;
     this.monsterRevealed = false;
     this.revealTurns = 0;
     this.questionsAnswered = 0;
     this.questionsCorrect = 0;
+    this.chaseProgress = 0;
     this.state = 'loading';
+    this._syncModeUI();
 
     // Shuffle existing cache (so restarts don't repeat same order) and pre-fetch
     this.questionManager.shuffleAllPools();
@@ -268,6 +298,39 @@ class Game {
     this._updateHUD();
     this._showTopicPanel();
     this.renderer.startLoop(() => this._update());
+  }
+
+  _findNearestPathCell(targetX, targetY) {
+    // BFS outward from (targetX, targetY) until we hit a path cell.
+    const w = this.mazeGen.width;
+    const h = this.mazeGen.height;
+    const maxR = Math.max(w, h);
+    for (let r = 0; r <= maxR; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = targetX + dx;
+          const y = targetY + dy;
+          if (x < 0 || x >= w || y < 0 || y >= h) continue;
+          if (this.mazeGen.grid[y][x] === 1) return { x, y };
+        }
+      }
+    }
+    return null;
+  }
+
+  _syncModeUI() {
+    const treasureEl = document.getElementById('treasure-counter');
+    const chaseEl = document.getElementById('chase-counter');
+    if (this.gameMode === 'chase') {
+      treasureEl.classList.add('hidden');
+      chaseEl.classList.remove('hidden');
+      document.getElementById('chase-target').textContent = this.chaseTarget;
+      document.getElementById('chase-progress').textContent = this.chaseProgress;
+    } else {
+      treasureEl.classList.remove('hidden');
+      chaseEl.classList.add('hidden');
+    }
   }
 
   _getLevelConfig(level) {
@@ -317,8 +380,20 @@ class Game {
   selectTopic(slotId) {
     if (this.state !== 'topic_select') return;
 
+    // Block selection when the slot's bonus is on cooldown (camouflage only).
+    const slotConfig = this.slotConfigs.find(s => s.slotDef.id === slotId);
+    if (slotConfig && slotConfig.slotDef.bonus === 'camouflage') {
+      if (this.camouflageTurns > 0) return;
+      if (Date.now() < this.camouflageCooldownUntil) return;
+    }
+
     this.currentSlotId = slotId;
     this.state = 'question';
+
+    if (this._topicPanelTimer) {
+      clearInterval(this._topicPanelTimer);
+      this._topicPanelTimer = null;
+    }
 
     const question = this.questionManager.getQuestion(slotId);
     if (!question) {
@@ -343,6 +418,16 @@ class Game {
       this._showFeedback(true, this.currentQuestion.options.options[this.currentQuestion.options.correctIndex]);
       // Immediately fetch a replacement question for this slot
       this.questionManager.onCorrectAnswer(this.currentSlotId);
+
+      // Chase mode: each correct answer is a step toward escape.
+      if (this.gameMode === 'chase') {
+        this.chaseProgress++;
+        this._updateHUD();
+        if (this.chaseProgress >= this.chaseTarget) {
+          this._win();
+          return;
+        }
+      }
 
       setTimeout(() => {
         if (this.state === 'lost' || this.state === 'won') return;
@@ -376,10 +461,8 @@ class Game {
       case 'move2':
         this.movesLeft = 2;
         break;
-      case 'vision':
-        this.expandedVisionTurns = 3;
-        this.renderer.setVisibleRadius(5);
-        this._updateStatusEffects();
+      case 'camouflage':
+        this._activateCamouflage();
         break;
       case 'bait':
         this._placeBait();
@@ -390,6 +473,23 @@ class Game {
         this._updateStatusEffects();
         break;
     }
+  }
+
+  _activateCamouflage() {
+    // Guard: if on cooldown, refund a move so the player isn't punished.
+    if (Date.now() < this.camouflageCooldownUntil) {
+      this.movesLeft = Math.max(this.movesLeft, 1);
+      return;
+    }
+    this.camouflageTurns = CAMOUFLAGE_TURNS;
+    this.camouflageCooldownUntil = Date.now() + CAMOUFLAGE_COOLDOWN_MS;
+    this.monsters.forEach(m => m.setBlind(true));
+    this._updateStatusEffects();
+  }
+
+  _endCamouflage() {
+    this.camouflageTurns = 0;
+    this.monsters.forEach(m => m.setBlind(false));
   }
 
   _placeBait() {
@@ -463,9 +563,9 @@ class Game {
   }
 
   _tickEffects() {
-    if (this.expandedVisionTurns > 0) {
-      this.expandedVisionTurns--;
-      if (this.expandedVisionTurns <= 0) this.renderer.resetVisibleRadius();
+    if (this.camouflageTurns > 0) {
+      this.camouflageTurns--;
+      if (this.camouflageTurns <= 0) this._endCamouflage();
     }
     if (this.revealTurns > 0) {
       this.revealTurns--;
@@ -482,9 +582,12 @@ class Game {
 
     const accuracy = this.questionsAnswered > 0
       ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100) : 0;
+    const scoreValue = this.gameMode === 'chase'
+      ? this.chaseProgress
+      : this.treasuresCollected;
     this.leaderboard.addScore({
       name: this.playerName, level: this.currentLevel,
-      treasures: this.treasuresCollected, accuracy,
+      treasures: scoreValue, accuracy,
       date: new Date().toISOString().split('T')[0],
     });
 
@@ -495,8 +598,11 @@ class Game {
       this.renderer.stopLoop();
       document.getElementById('game-screen').classList.remove('active');
       document.getElementById('lose-screen').classList.add('active');
+      const progress = this.gameMode === 'chase'
+        ? `Побег: ${this.chaseProgress}/${this.chaseTarget}`
+        : `Сокровищ: ${this.treasuresCollected}/${this.totalTreasures}`;
       document.getElementById('lose-stats').textContent =
-        `Уровень: ${this.currentLevel} | Вопросов: ${this.questionsAnswered} | Правильных: ${this.questionsCorrect} | Сокровищ: ${this.treasuresCollected}/${this.totalTreasures}`;
+        `Уровень: ${this.currentLevel} | Вопросов: ${this.questionsAnswered} | Правильных: ${this.questionsCorrect} | ${progress}`;
     });
   }
 
@@ -508,17 +614,21 @@ class Game {
 
     const accuracy = this.questionsAnswered > 0
       ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100) : 0;
+    const scoreValue = this.gameMode === 'chase'
+      ? this.chaseProgress
+      : this.treasuresCollected;
     this.leaderboard.addScore({
       name: this.playerName, level: this.currentLevel,
-      treasures: this.treasuresCollected, accuracy,
+      treasures: scoreValue, accuracy,
       date: new Date().toISOString().split('T')[0],
     });
 
     setTimeout(() => {
       document.getElementById('game-screen').classList.remove('active');
       document.getElementById('win-screen').classList.add('active');
+      const modeNote = this.gameMode === 'chase' ? ' | Побег удался!' : '';
       document.getElementById('win-stats').textContent =
-        `Уровень ${this.currentLevel} пройден! | Точность: ${accuracy}%`;
+        `Уровень ${this.currentLevel} пройден!${modeNote} | Точность: ${accuracy}%`;
     }, 500);
   }
 
@@ -535,6 +645,7 @@ class Game {
       level: this.currentLevel,
       lexicalTopic: this.lexicalTopic,
       slotConfigs: this.slotConfigs,
+      gameMode: this.gameMode,
     });
   }
 
@@ -547,11 +658,26 @@ class Game {
     document.getElementById('question-panel').classList.add('hidden');
     document.getElementById('direction-panel').classList.add('hidden');
 
-    // Build topic buttons from configured slots
+    this._renderTopicButtons();
+
+    // Refresh cooldown labels while the topic panel is visible.
+    if (this._topicPanelTimer) clearInterval(this._topicPanelTimer);
+    this._topicPanelTimer = setInterval(() => {
+      if (this.state !== 'topic_select') {
+        clearInterval(this._topicPanelTimer);
+        this._topicPanelTimer = null;
+        return;
+      }
+      this._renderTopicButtons();
+      this._updateStatusEffects();
+    }, 1000);
+  }
+
+  _renderTopicButtons() {
     const container = document.getElementById('topic-buttons');
     container.innerHTML = '';
 
-    this.slotConfigs.forEach((cfg, i) => {
+    this.slotConfigs.forEach((cfg) => {
       const btn = document.createElement('button');
       btn.className = 'topic-btn';
       btn.dataset.slot = cfg.slotDef.id;
@@ -560,12 +686,33 @@ class Game {
         ? `Wortstellung + ${cfg.grammarTopic}`
         : cfg.grammarTopic;
 
+      let bonusText = cfg.slotDef.bonusLabel;
+      let disabled = false;
+
+      if (cfg.slotDef.bonus === 'camouflage') {
+        if (this.camouflageTurns > 0) {
+          bonusText = `Маскировка ${this.camouflageTurns}`;
+          disabled = true;
+        } else {
+          const cdLeft = this.camouflageCooldownUntil - Date.now();
+          if (cdLeft > 0) {
+            bonusText = `Откат ${this._formatMs(cdLeft)}`;
+            disabled = true;
+          }
+        }
+      }
+
       btn.innerHTML = `
         <span class="topic-name">${name}</span>
-        <span class="topic-bonus">${cfg.slotDef.bonusLabel}</span>
+        <span class="topic-bonus">${bonusText}</span>
       `;
 
-      btn.addEventListener('click', () => this.selectTopic(cfg.slotDef.id));
+      if (disabled) {
+        btn.disabled = true;
+        btn.classList.add('cooldown');
+      } else {
+        btn.addEventListener('click', () => this.selectTopic(cfg.slotDef.id));
+      }
       container.appendChild(btn);
     });
   }
@@ -659,15 +806,17 @@ class Game {
   _updateHUD() {
     document.getElementById('treasure-count').textContent = this.treasuresCollected;
     document.getElementById('level-num').textContent = this.currentLevel;
+    document.getElementById('chase-progress').textContent = this.chaseProgress;
+    document.getElementById('chase-target').textContent = this.chaseTarget;
   }
 
   _updateStatusEffects() {
     const container = document.getElementById('status-effects');
     container.innerHTML = '';
-    if (this.expandedVisionTurns > 0) {
+    if (this.camouflageTurns > 0) {
       const badge = document.createElement('div');
       badge.className = 'status-badge';
-      badge.textContent = `Зрение +${this.expandedVisionTurns}`;
+      badge.textContent = `Маскировка ${this.camouflageTurns}`;
       container.appendChild(badge);
     }
     if (this.revealTurns > 0) {
@@ -676,10 +825,28 @@ class Game {
       badge.textContent = `Монстр виден ${this.revealTurns}`;
       container.appendChild(badge);
     }
+    const cdLeft = this.camouflageCooldownUntil - Date.now();
+    if (this.camouflageTurns <= 0 && cdLeft > 0) {
+      const badge = document.createElement('div');
+      badge.className = 'status-badge';
+      badge.textContent = `Маскировка КД ${this._formatMs(cdLeft)}`;
+      container.appendChild(badge);
+    }
+  }
+
+  _formatMs(ms) {
+    const total = Math.ceil(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
   destroy() {
     this.monsters.forEach(m => m.stop());
+    if (this._topicPanelTimer) {
+      clearInterval(this._topicPanelTimer);
+      this._topicPanelTimer = null;
+    }
     if (this.renderer) this.renderer.dispose();
     if (this.audio) this.audio.dispose();
   }

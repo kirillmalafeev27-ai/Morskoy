@@ -395,6 +395,11 @@ body {
   border-radius: 8px; font-size: 1em; border: 1px solid #444; color: #ff6a00;
 }
 
+#chase-counter {
+  background: rgba(0,0,0,0.7); padding: 6px 14px;
+  border-radius: 8px; font-size: 1.1em; border: 1px solid #cc4422; color: #ff8866;
+}
+
 .hud-icon { margin-right: 4px; }
 
 #status-effects { display: flex; gap: 8px; }
@@ -428,6 +433,8 @@ body {
 
 .topic-btn:hover { border-color: #ff6a00; background: #1f1a14; }
 .topic-btn:active { transform: scale(0.95); }
+.topic-btn.cooldown { opacity: 0.45; cursor: not-allowed; border-color: #444; }
+.topic-btn.cooldown:hover { border-color: #444; background: #1a1a1a; }
 
 .topic-name { font-size: 0.75em; font-weight: bold; text-align: center; word-break: break-word; }
 .topic-bonus { font-size: 0.65em; color: #ff6a00; text-align: center; }

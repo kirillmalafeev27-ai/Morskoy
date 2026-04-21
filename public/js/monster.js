@@ -14,7 +14,19 @@ class Monster {
     this.isWandering = false;
     this.wanderSteps = 0;
     this.alive = true;
+    this.isBlind = false; // when true, can't track player (camouflage active)
     this.onMove = null; // callback
+  }
+
+  setBlind(blind) {
+    this.isBlind = blind;
+    if (blind) {
+      // drop any current tracking state so predator wanders purely randomly
+      this.baitTarget = null;
+      this.baitTurnsLeft = 0;
+      this.isWandering = false;
+      this.wanderSteps = 0;
+    }
   }
 
   start(getPlayerPos) {
@@ -50,6 +62,14 @@ class Monster {
 
   _doMove() {
     if (!this.alive) return;
+
+    // Camouflage active — predator can't see the runner and just wanders.
+    // It can still collide by chance if it steps onto the runner's tile.
+    if (this.isBlind) {
+      this._moveRandom();
+      if (this.onMove) this.onMove(this.x, this.y);
+      return;
+    }
 
     let targetX, targetY;
 
