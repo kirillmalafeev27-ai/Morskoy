@@ -9,13 +9,11 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <!-- Main Menu -->
   <div id="menu-screen" class="screen active">
     <div class="menu-container">
       <h1 id="game-title">MORSKOY DUNGEON</h1>
       <p class="subtitle" id="game-subtitle">Грамматика немецкого в тёмных коридорах</p>
 
-      <!-- Step 1: Name & Settings -->
       <div id="setup-step1" class="setup-step">
         <div class="menu-options">
           <div class="option-group name-input-group">
@@ -31,6 +29,30 @@
             </select>
           </div>
 
+          <div class="option-group">
+            <label>Формат матча:</label>
+            <select id="match-type">
+              <option value="solo" selected>Один игрок</option>
+              <option value="pvp">PVP-сессия</option>
+            </select>
+          </div>
+
+          <div class="option-group hidden" id="pvp-session-group">
+            <label>PVP-лобби:</label>
+            <div class="pvp-row">
+              <select id="pvp-role">
+                <option value="runner">Бегун</option>
+                <option value="hunter">Хищник</option>
+              </select>
+              <button id="pvp-create-btn" class="btn-secondary">Создать</button>
+            </div>
+            <div class="pvp-row">
+              <input type="text" id="pvp-session-code" placeholder="Код сессии" maxlength="6">
+              <button id="pvp-join-btn" class="btn-secondary">Войти</button>
+            </div>
+            <div id="pvp-session-status" class="pvp-session-status">PVP-комната ещё не создана.</div>
+          </div>
+
           <div class="option-group" id="monster-count-group">
             <label>Монстры:</label>
             <select id="monster-count">
@@ -40,7 +62,7 @@
             </select>
           </div>
 
-          <div class="option-group">
+          <div class="option-group" id="difficulty-group">
             <label>Сложность:</label>
             <select id="difficulty">
               <option value="easy">Простой (монстр ходит раз в 10 сек)</option>
@@ -67,7 +89,6 @@
         <button id="leaderboard-btn" class="btn-secondary">ТАБЛИЦА ЛИДЕРОВ</button>
       </div>
 
-      <!-- Step 2: Language Level -->
       <div id="setup-step2" class="setup-step hidden">
         <h2 class="step-title">Выберите уровень немецкого</h2>
         <p class="step-hint">Уровень фиксируется на всю игру. Все упражнения будут этого уровня.</p>
@@ -92,7 +113,6 @@
         <button id="back-to-step1" class="btn-secondary">Назад</button>
       </div>
 
-      <!-- Step 3: Lexical Topic -->
       <div id="setup-step3" class="setup-step hidden">
         <h2 class="step-title">Выберите лексическую тему</h2>
         <p class="step-hint">Все упражнения будут использовать слова из этой темы.</p>
@@ -100,12 +120,10 @@
         <button id="back-to-step2" class="btn-secondary">Назад</button>
       </div>
 
-      <!-- Step 4: Grammar Slots -->
       <div id="setup-step4" class="setup-step hidden">
         <h2 class="step-title">Настройте бонусные слоты</h2>
         <p class="step-hint">Выберите грамматическую тему, затем кликните на пустой слот.</p>
 
-        <!-- Bonus Slots -->
         <div id="bonus-slots" class="bonus-slots">
           <div class="bonus-slot filled" data-slot="0">
             <div class="slot-bonus">2 хода</div>
@@ -123,18 +141,17 @@
             <div class="slot-grammar"></div>
           </div>
           <div class="bonus-slot empty" data-slot="3">
-            <div class="slot-bonus">Приманка</div>
+            <div class="slot-bonus">Ловушка</div>
             <div class="slot-topic">Пусто</div>
             <div class="slot-grammar"></div>
           </div>
           <div class="bonus-slot empty" data-slot="4">
-            <div class="slot-bonus">Показать монстра</div>
+            <div class="slot-bonus">Рывок</div>
             <div class="slot-topic">Пусто</div>
             <div class="slot-grammar"></div>
           </div>
         </div>
 
-        <!-- Grammar topics to choose from -->
         <div class="grammar-picker-label">Грамматические темы:</div>
         <div id="grammar-picker" class="grammar-picker"></div>
 
@@ -142,11 +159,11 @@
           <button id="start-btn" class="btn-primary" disabled>НАЧАТЬ ИГРУ</button>
           <button id="back-to-step3" class="btn-secondary">Назад</button>
         </div>
+        <p id="pvp-ready-hint" class="pvp-ready-hint hidden"></p>
       </div>
     </div>
   </div>
 
-  <!-- Tutorial Overlay -->
   <div id="tutorial-overlay" class="hidden">
     <div class="tutorial-content">
       <h2>КАК ИГРАТЬ</h2>
@@ -168,7 +185,7 @@
       </div>
       <div class="tutorial-step">
         <span class="step-icon">!</span>
-        Монстр <strong>двигается постоянно</strong>, даже пока вы думаете!
+        Монстр <strong>двигается постоянно</strong>, даже пока вы думаете
       </div>
       <div class="tutorial-step">
         <span class="step-icon">?</span>
@@ -176,19 +193,17 @@
       </div>
       <div class="tutorial-step">
         <span class="step-icon">&#x1F977;</span>
-        <strong>Маскировка</strong>: 5 ходов невидимости, хищник бродит случайно и может наткнуться. Откат 3 минуты
+        <strong>Маскировка</strong>: 5 ходов невидимости, хищник теряет след и может наткнуться случайно. Откат 3 минуты
       </div>
       <button id="tutorial-close" class="btn-primary">ПОНЯТНО!</button>
     </div>
   </div>
 
-  <!-- Game Screen -->
   <div id="game-screen" class="screen">
     <canvas id="game-canvas"></canvas>
     <div id="death-overlay"></div>
     <div id="swipe-hint"></div>
 
-    <!-- HUD -->
     <div id="hud">
       <div id="treasure-counter">
         <span class="hud-icon">&#x1F48E;</span>
@@ -198,17 +213,16 @@
         <span class="hud-icon">&#x1F3C3;</span>
         <span id="chase-progress">0</span> / <span id="chase-target">8</span>
       </div>
-      <div id="level-display">&#x0423;&#x0440;&#x043E;&#x0432;&#x0435;&#x043D;&#x044C; <span id="level-num">1</span></div>
+      <div id="pvp-role-indicator" class="hidden"></div>
+      <div id="level-display">Уровень <span id="level-num">1</span></div>
       <div id="status-effects"></div>
     </div>
 
-    <!-- Loading overlay for questions -->
     <div id="loading-overlay" class="hidden">
       <div class="loading-spinner"></div>
       <p>Генерация упражнений...</p>
     </div>
 
-    <!-- Direction controls -->
     <div id="direction-panel" class="hidden">
       <p class="direction-prompt">Выберите направление:</p>
       <div class="direction-buttons">
@@ -219,15 +233,11 @@
       </div>
     </div>
 
-    <!-- Topic Selection Panel (now shows configured slots) -->
     <div id="topic-panel" class="hidden">
       <h3>Выберите тему:</h3>
-      <div id="topic-buttons" class="topic-buttons">
-        <!-- Filled dynamically from configured slots -->
-      </div>
+      <div id="topic-buttons" class="topic-buttons"></div>
     </div>
 
-    <!-- Question Panel -->
     <div id="question-panel" class="hidden">
       <div class="question-header">
         <span id="question-topic-label"></span>
@@ -239,7 +249,6 @@
     </div>
   </div>
 
-  <!-- Win Screen -->
   <div id="win-screen" class="screen">
     <div class="end-container">
       <h1>ПОБЕДА!</h1>
@@ -252,7 +261,6 @@
     </div>
   </div>
 
-  <!-- Lose Screen -->
   <div id="lose-screen" class="screen">
     <div class="end-container">
       <h1 id="lose-title">ПОРАЖЕНИЕ</h1>
@@ -265,7 +273,6 @@
     </div>
   </div>
 
-  <!-- Leaderboard Screen -->
   <div id="leaderboard-screen" class="screen">
     <div class="end-container">
       <h1 style="color: #ff6a00; font-size: 2em;">ТАБЛИЦА ЛИДЕРОВ</h1>
@@ -280,26 +287,21 @@
     </div>
   </div>
 
-  <!-- Three.js from CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
-  <!-- Three.js post-processing -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-
-  <!-- Three.js loaders -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
-  <!-- Game modules -->
   <script src="js/maze.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/questions.js"></script>
   <script src="js/renderer.js"></script>
   <script src="js/monster.js"></script>
+  <script src="js/pvp.js"></script>
   <script src="js/game.js"></script>
   <script src="js/main.js"></script>
 </body>
