@@ -80,6 +80,21 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  function isSetupSynced(sessionSetup, localPatch) {
+    if (!sessionSetup || !localPatch) return false;
+    if (sessionSetup.isCreepy !== localPatch.isCreepy) return false;
+    if (sessionSetup.difficulty !== localPatch.difficulty) return false;
+    if (sessionSetup.langLevel !== localPatch.langLevel) return false;
+    if (sessionSetup.lexicalTopic !== localPatch.lexicalTopic) return false;
+    if (!Array.isArray(sessionSetup.slotAssignments) || sessionSetup.slotAssignments.length !== localPatch.slotAssignments.length) {
+      return false;
+    }
+    for (let i = 0; i < localPatch.slotAssignments.length; i++) {
+      if (sessionSetup.slotAssignments[i] !== localPatch.slotAssignments[i]) return false;
+    }
+    return true;
+  }
+
   function schedulePvpSetupSync() {
     if (!isPvpMode() || !pvp.isActive) return;
     clearTimeout(setupSyncTimer);
@@ -393,9 +408,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!pvp.session) return;
     const playerName = playerNameEl.value.trim() || 'Spieler';
     localStorage.setItem('morskoy_player_name', playerName);
+    clearTimeout(setupSyncTimer);
+    setupSyncTimer = null;
 
     try {
-      await pvp.updateSetup(collectSetupPatch());
+      const setupPatch = collectSetupPatch();
+      if (!isSetupSynced(pvp.session.setup, setupPatch)) {
+        await pvp.updateSetup(setupPatch);
+      }
       await pvp.setReady(true);
       renderPvpStatus();
     } catch (err) {
