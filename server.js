@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const OpenAI = require('openai');
 
 const app = express();
@@ -8,12 +9,353 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const client = new OpenAI({
-  apiKey: process.env.AITUNNEL_API_KEY,
-  baseURL: 'https://api.aitunnel.ru/v1',
-});
+const aiApiKey = process.env.AITUNNEL_API_KEY || process.env.OPENAI_API_KEY || '';
+const aiBaseUrl = process.env.AITUNNEL_API_KEY ? 'https://api.aitunnel.ru/v1' : undefined;
+let client = null;
+
+function getAiClient() {
+  if (!aiApiKey) return null;
+  if (!client) {
+    client = new OpenAI({
+      apiKey: aiApiKey,
+      ...(aiBaseUrl ? { baseURL: aiBaseUrl } : {}),
+    });
+  }
+  return client;
+}
 
 const questionPool = {};
+const pvpSessions = new Map();
+
+const PVP_SLOT_IDS = ['wortstellung', 'slot2', 'slot3', 'slot4', 'slot5'];
+const PVP_ROLE_BONUSES = {
+  runner: {
+    wortstellung: 'move2',
+    slot2: 'move1',
+    slot3: 'camouflage',
+    slot4: 'trap',
+    slot5: 'dash',
+  },
+  hunter: {
+    wortstellung: 'move2',
+    slot2: 'move1',
+    slot3: 'hunt_map',
+    slot4: 'trail',
+    slot5: 'pounce',
+  },
+};
+const PVP_ESCAPE_TARGET = 8;
+const PVP_CAMOUFLAGE_TURNS = 5;
+const PVP_TRAP_STUN_TURNS = 3;
+const PVP_MAP_REVEAL_MS = 1500;
+const PVP_TRAIL_REVEAL_MS = 8000;
+const PVP_TRAIL_MAX_POINTS = 8;
+
+function makeSessionId() {
+  let id = '';
+  do {
+    id = crypto.randomBytes(3).toString('hex').toUpperCase();
+  } while (pvpSessions.has(id));
+  return id;
+}
+
+function makePlayerToken() {
+  return crypto.randomBytes(18).toString('hex');
+}
+
+function createEmptySetup() {
+  return {
+    isCreepy: true,
+    difficulty: 'medium',
+    gameMode: 'chase',
+    langLevel: null,
+    lexicalTopic: null,
+    slotAssignments: [null, null, null, null, null],
+  };
+}
+
+function createSession(playerName, preferredRole) {
+  const role = preferredRole === 'hunter' ? 'hunter' : 'runner';
+  const token = makePlayerToken();
+  const session = {
+    id: makeSessionId(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    phase: 'lobby',
+    hostToken: token,
+    players: {
+      runner: null,
+      hunter: null,
+    },
+    ready: {
+      runner: false,
+      hunter: false,
+    },
+    setup: createEmptySetup(),
+    game: null,
+    subscribers: new Map(),
+  };
+
+  session.players[role] = {
+    token,
+    name: playerName || (role === 'runner' ? 'Runner' : 'Hunter'),
+    joinedAt: Date.now(),
+  };
+
+  pvpSessions.set(session.id, session);
+  return { session, token, role };
+}
+
+function getPlayerRole(session, playerToken) {
+  if (!playerToken) return null;
+  if (session.players.runner?.token === playerToken) return 'runner';
+  if (session.players.hunter?.token === playerToken) return 'hunter';
+  return null;
+}
+
+function getAvailableRole(session, preferredRole) {
+  if (preferredRole && !session.players[preferredRole]) return preferredRole;
+  if (!session.players.runner) return 'runner';
+  if (!session.players.hunter) return 'hunter';
+  return null;
+}
+
+function canStartSession(session) {
+  return Boolean(
+    session.players.runner &&
+    session.players.hunter &&
+    session.setup.langLevel &&
+    session.setup.lexicalTopic &&
+    Array.isArray(session.setup.slotAssignments) &&
+    session.setup.slotAssignments.length === PVP_SLOT_IDS.length &&
+    session.setup.slotAssignments.every(Boolean)
+  );
+}
+
+function touchSession(session) {
+  session.updatedAt = Date.now();
+}
+
+function getApproxZone(player, maze) {
+  const size = 5;
+  const half = Math.floor(size / 2);
+  const maxMinX = Math.max(1, maze.width - size);
+  const maxMinY = Math.max(1, maze.height - size);
+  const minX = Math.max(1, Math.min(player.x - half, maxMinX));
+  const minY = Math.max(1, Math.min(player.y - half, maxMinY));
+  const maxX = Math.min(maze.width - 2, minX + size - 1);
+  const maxY = Math.min(maze.height - 2, minY + size - 1);
+  return { minX, minY, maxX, maxY };
+}
+
+function canWalk(maze, x, y) {
+  return (
+    x >= 0 &&
+    x < maze.width &&
+    y >= 0 &&
+    y < maze.height &&
+    Array.isArray(maze.grid[y]) &&
+    maze.grid[y][x] === 1
+  );
+}
+
+function pushRunnerTrail(game) {
+  game.runnerTrail.push({ x: game.players.runner.x, y: game.players.runner.y });
+  if (game.runnerTrail.length > PVP_TRAIL_MAX_POINTS) {
+    game.runnerTrail = game.runnerTrail.slice(-PVP_TRAIL_MAX_POINTS);
+  }
+}
+
+function finishGame(session, winner) {
+  if (!session.game || session.game.status === 'finished') return;
+  session.game.status = 'finished';
+  session.game.winner = winner;
+  session.phase = 'finished';
+}
+
+function applyPvpBonus(session, role, bonusType) {
+  const game = session.game;
+  const actor = game.players[role];
+
+  switch (bonusType) {
+    case 'move1':
+      actor.movesLeft = Math.max(actor.movesLeft, 1);
+      actor.specialMove = null;
+      break;
+    case 'move2':
+      actor.movesLeft = Math.max(actor.movesLeft, 2);
+      actor.specialMove = null;
+      break;
+    case 'camouflage':
+      game.effects.runnerCamouflageTurns = PVP_CAMOUFLAGE_TURNS;
+      break;
+    case 'trap':
+      game.traps = game.traps.filter(trap => !(trap.x === actor.x && trap.y === actor.y));
+      game.traps.push({
+        x: actor.x,
+        y: actor.y,
+        stunTurns: PVP_TRAP_STUN_TURNS,
+      });
+      break;
+    case 'dash':
+    case 'pounce':
+      actor.movesLeft = 0;
+      actor.specialMove = {
+        type: bonusType,
+        distance: 3,
+      };
+      break;
+    case 'hunt_map':
+      game.effects.huntMapUntil = Date.now() + PVP_MAP_REVEAL_MS;
+      game.effects.huntZone = getApproxZone(game.players.runner, game.maze);
+      break;
+    case 'trail':
+      game.effects.trailRevealUntil = Date.now() + PVP_TRAIL_REVEAL_MS;
+      break;
+  }
+}
+
+function stepPlayer(session, role, direction) {
+  const game = session.game;
+  const actor = game.players[role];
+  const opponent = game.players[role === 'runner' ? 'hunter' : 'runner'];
+  const dirs = {
+    up: { x: 0, y: -1 },
+    down: { x: 0, y: 1 },
+    left: { x: -1, y: 0 },
+    right: { x: 1, y: 0 },
+  };
+  const dir = dirs[direction];
+  if (!dir) return { moved: 0 };
+
+  const steps = actor.specialMove ? actor.specialMove.distance : 1;
+  let moved = 0;
+  let trapTriggered = false;
+
+  for (let i = 0; i < steps; i++) {
+    const nextX = actor.x + dir.x;
+    const nextY = actor.y + dir.y;
+    if (!canWalk(game.maze, nextX, nextY)) break;
+
+    actor.x = nextX;
+    actor.y = nextY;
+    moved++;
+
+    if (role === 'runner') {
+      pushRunnerTrail(game);
+      if (game.effects.runnerCamouflageTurns > 0) {
+        game.effects.runnerCamouflageTurns--;
+      }
+    } else {
+      const trapIdx = game.traps.findIndex(trap => trap.x === actor.x && trap.y === actor.y);
+      if (trapIdx >= 0) {
+        const trap = game.traps[trapIdx];
+        game.traps.splice(trapIdx, 1);
+        actor.stunTurns = Math.max(actor.stunTurns, trap.stunTurns);
+        actor.movesLeft = 0;
+        actor.specialMove = null;
+        trapTriggered = true;
+      }
+    }
+
+    if (actor.x === opponent.x && actor.y === opponent.y) {
+      finishGame(session, 'hunter');
+      break;
+    }
+
+    if (trapTriggered || session.game.status === 'finished') break;
+  }
+
+  if (actor.specialMove) {
+    actor.specialMove = null;
+  } else if (moved > 0 && actor.movesLeft > 0) {
+    actor.movesLeft--;
+  }
+
+  return { moved, trapTriggered };
+}
+
+function serializeGame(game) {
+  if (!game) return null;
+  return {
+    status: game.status,
+    winner: game.winner,
+    maze: game.maze,
+    players: game.players,
+    traps: game.traps,
+    runnerTrail: game.runnerTrail,
+    chaseProgress: game.chaseProgress,
+    escapeTarget: game.escapeTarget,
+    effects: game.effects,
+  };
+}
+
+function hasActiveSubscriber(session, role) {
+  const player = session.players[role];
+  if (!player) return false;
+  const subs = session.subscribers.get(player.token);
+  return Boolean(subs && subs.size > 0);
+}
+
+function serializeSession(session, viewerToken) {
+  return {
+    id: session.id,
+    phase: session.phase,
+    viewerRole: getPlayerRole(session, viewerToken),
+    hostRole: getPlayerRole(session, session.hostToken),
+    canStart: canStartSession(session),
+    ready: session.ready,
+    players: {
+      runner: session.players.runner
+        ? {
+            name: session.players.runner.name,
+            role: 'runner',
+            connected: hasActiveSubscriber(session, 'runner'),
+          }
+        : null,
+      hunter: session.players.hunter
+        ? {
+            name: session.players.hunter.name,
+            role: 'hunter',
+            connected: hasActiveSubscriber(session, 'hunter'),
+          }
+        : null,
+    },
+    setup: session.setup,
+    game: serializeGame(session.game),
+    serverNow: Date.now(),
+  };
+}
+
+function sendSessionState(session, playerToken, res) {
+  res.write(`data: ${JSON.stringify(serializeSession(session, playerToken))}\n\n`);
+}
+
+function broadcastSession(session) {
+  for (const [playerToken, resSet] of session.subscribers.entries()) {
+    for (const res of resSet) {
+      sendSessionState(session, playerToken, res);
+    }
+  }
+}
+
+function getSessionOrRespond(sessionId, res) {
+  const session = pvpSessions.get(sessionId);
+  if (!session) {
+    res.status(404).json({ error: 'Session not found' });
+    return null;
+  }
+  return session;
+}
+
+function getPlayerOrRespond(session, playerToken, res) {
+  const role = getPlayerRole(session, playerToken);
+  if (!role) {
+    res.status(403).json({ error: 'Player is not part of this session' });
+    return null;
+  }
+  return role;
+}
 
 const TOPIC_RULES = {
   'Infinitiv mit zu': `Verwende NUR Verben, die "zu + Infinitiv" verlangen: versuchen, beginnen, anfangen, aufhören, vorhaben, hoffen, vergessen, planen, sich freuen, Lust haben, Es ist wichtig/möglich/schwer...
@@ -108,11 +450,343 @@ Genus-Regeln: -ung/-heit/-keit/-schaft/-tion/-tät → die. -chen/-lein → das.
 Richtig: "Der Mann ist ein guter Lehrer." | Falsch: "Der Mann ist einen guten Lehrer."`,
 };
 
+app.post('/api/pvp/sessions', (req, res) => {
+  const { playerName, preferredRole } = req.body || {};
+  const { session, token, role } = createSession(playerName, preferredRole);
+  res.json({
+    sessionId: session.id,
+    playerToken: token,
+    role,
+    session: serializeSession(session, token),
+  });
+});
+
+app.post('/api/pvp/sessions/:sessionId/join', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerName, preferredRole } = req.body || {};
+  const role = getAvailableRole(session, preferredRole);
+  if (!role) {
+    res.status(409).json({ error: 'Session is full' });
+    return;
+  }
+
+  const token = makePlayerToken();
+  session.players[role] = {
+    token,
+    name: playerName || (role === 'runner' ? 'Runner' : 'Hunter'),
+    joinedAt: Date.now(),
+  };
+  session.ready[role] = false;
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({
+    sessionId: session.id,
+    playerToken: token,
+    role,
+    session: serializeSession(session, token),
+  });
+});
+
+app.get('/api/pvp/sessions/:sessionId', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const playerToken = req.query.token;
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+
+  res.json({ session: serializeSession(session, playerToken) });
+});
+
+app.get('/api/pvp/sessions/:sessionId/stream', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const playerToken = req.query.token;
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  if (!session.subscribers.has(playerToken)) {
+    session.subscribers.set(playerToken, new Set());
+  }
+  session.subscribers.get(playerToken).add(res);
+
+  sendSessionState(session, playerToken, res);
+  broadcastSession(session);
+
+  req.on('close', () => {
+    const subs = session.subscribers.get(playerToken);
+    if (subs) {
+      subs.delete(res);
+      if (subs.size === 0) {
+        session.subscribers.delete(playerToken);
+      }
+    }
+    broadcastSession(session);
+  });
+});
+
+app.post('/api/pvp/sessions/:sessionId/setup', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerToken, patch } = req.body || {};
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+  if (session.phase !== 'lobby') {
+    res.status(409).json({ error: 'Setup can only be changed in the lobby' });
+    return;
+  }
+
+  const safePatch = patch || {};
+  const nextSetup = { ...session.setup };
+
+  if (typeof safePatch.isCreepy === 'boolean') nextSetup.isCreepy = safePatch.isCreepy;
+  if (typeof safePatch.difficulty === 'string') nextSetup.difficulty = safePatch.difficulty;
+  if (typeof safePatch.langLevel === 'string') nextSetup.langLevel = safePatch.langLevel;
+  if (typeof safePatch.lexicalTopic === 'string') nextSetup.lexicalTopic = safePatch.lexicalTopic;
+  if (Array.isArray(safePatch.slotAssignments) && safePatch.slotAssignments.length === PVP_SLOT_IDS.length) {
+    nextSetup.slotAssignments = safePatch.slotAssignments.map(topic => (typeof topic === 'string' ? topic : null));
+  }
+
+  session.setup = nextSetup;
+  session.ready.runner = false;
+  session.ready.hunter = false;
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({ session: serializeSession(session, playerToken) });
+});
+
+app.post('/api/pvp/sessions/:sessionId/ready', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerToken, ready } = req.body || {};
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+  if (!canStartSession(session)) {
+    res.status(409).json({ error: 'Session setup is incomplete' });
+    return;
+  }
+  if (session.phase === 'in_game') {
+    res.status(409).json({ error: 'Game is already running' });
+    return;
+  }
+
+  session.ready[role] = Boolean(ready);
+  session.phase = session.ready.runner && session.ready.hunter ? 'awaiting_init' : 'lobby';
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({ session: serializeSession(session, playerToken) });
+});
+
+app.post('/api/pvp/sessions/:sessionId/leave', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerToken } = req.body || {};
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+
+  session.players[role] = null;
+  session.ready[role] = false;
+  session.subscribers.delete(playerToken);
+
+  if (session.hostToken === playerToken) {
+    session.hostToken = session.players.runner?.token || session.players.hunter?.token || null;
+  }
+
+  if (!session.players.runner && !session.players.hunter) {
+    pvpSessions.delete(session.id);
+    res.json({ ok: true });
+    return;
+  }
+
+  session.phase = 'lobby';
+  session.game = null;
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({ ok: true });
+});
+
+app.post('/api/pvp/sessions/:sessionId/game/init', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerToken, payload } = req.body || {};
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+  if (playerToken !== session.hostToken) {
+    res.status(403).json({ error: 'Only the session host can initialize the match' });
+    return;
+  }
+  if (!(session.ready.runner && session.ready.hunter)) {
+    res.status(409).json({ error: 'Both players must be ready first' });
+    return;
+  }
+
+  const maze = payload?.maze;
+  const players = payload?.players;
+  if (
+    !maze ||
+    !Array.isArray(maze.grid) ||
+    typeof maze.width !== 'number' ||
+    typeof maze.height !== 'number' ||
+    !players?.runner ||
+    !players?.hunter
+  ) {
+    res.status(400).json({ error: 'Invalid initial game payload' });
+    return;
+  }
+
+  session.game = {
+    status: 'running',
+    winner: null,
+    maze,
+    players: {
+      runner: {
+        x: players.runner.x,
+        y: players.runner.y,
+        movesLeft: 0,
+        stunTurns: 0,
+        specialMove: null,
+      },
+      hunter: {
+        x: players.hunter.x,
+        y: players.hunter.y,
+        movesLeft: 0,
+        stunTurns: 0,
+        specialMove: null,
+      },
+    },
+    traps: [],
+    runnerTrail: [{ x: players.runner.x, y: players.runner.y }],
+    chaseProgress: 0,
+    escapeTarget: payload?.escapeTarget || PVP_ESCAPE_TARGET,
+    effects: {
+      runnerCamouflageTurns: 0,
+      huntMapUntil: 0,
+      huntZone: null,
+      trailRevealUntil: 0,
+    },
+  };
+
+  session.phase = 'in_game';
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({ session: serializeSession(session, playerToken) });
+});
+
+app.post('/api/pvp/sessions/:sessionId/game/answer', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerToken, slotId, correct } = req.body || {};
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+  if (!session.game || session.phase !== 'in_game') {
+    res.status(409).json({ error: 'Game is not running' });
+    return;
+  }
+
+  const actor = session.game.players[role];
+  if (!correct) {
+    res.json({
+      result: 'wrong',
+      session: serializeSession(session, playerToken),
+    });
+    return;
+  }
+
+  if (actor.stunTurns > 0) {
+    actor.stunTurns--;
+    touchSession(session);
+    broadcastSession(session);
+    res.json({
+      result: 'stunned',
+      remainingStunTurns: actor.stunTurns,
+      session: serializeSession(session, playerToken),
+    });
+    return;
+  }
+
+  const bonusType = PVP_ROLE_BONUSES[role][slotId];
+  if (!bonusType) {
+    res.status(400).json({ error: 'Unknown slot bonus' });
+    return;
+  }
+
+  if (role === 'runner') {
+    session.game.chaseProgress++;
+    if (session.game.chaseProgress >= session.game.escapeTarget) {
+      finishGame(session, 'runner');
+    }
+  }
+
+  if (session.game.status !== 'finished') {
+    applyPvpBonus(session, role, bonusType);
+  }
+
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({
+    result: 'correct',
+    bonusType,
+    session: serializeSession(session, playerToken),
+  });
+});
+
+app.post('/api/pvp/sessions/:sessionId/game/move', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerToken, direction } = req.body || {};
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+  if (!session.game || session.phase !== 'in_game') {
+    res.status(409).json({ error: 'Game is not running' });
+    return;
+  }
+
+  const actor = session.game.players[role];
+  if (!actor.specialMove && actor.movesLeft <= 0) {
+    res.status(409).json({ error: 'No moves available' });
+    return;
+  }
+
+  const result = stepPlayer(session, role, direction);
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({
+    result,
+    session: serializeSession(session, playerToken),
+  });
+});
+
 app.post('/api/generate-questions', async (req, res) => {
   const { level, lexicalTopic, grammarTopic, isWortstellung, count, exclude } = req.body;
 
   if (!level || !grammarTopic) {
     return res.status(400).json({ error: 'level and grammarTopic are required' });
+  }
+
+  const aiClient = getAiClient();
+  if (!aiClient) {
+    return res.status(503).json({ error: 'Question generation is not configured on the server' });
   }
 
   const questionsCount = count || 10;
@@ -183,7 +857,7 @@ Antworte NUR mit einem validen JSON-Array, KEIN Markdown, KEINE Erklärungen:
 [{"text":"Инструкция на русском","display":"Deutscher Text","options":["A","B","C","D"],"correct":0}]`;
 
   try {
-    const completion = await client.chat.completions.create({
+    const completion = await aiClient.chat.completions.create({
       model: 'gpt-5.4',
       max_completion_tokens: 8192,
       messages: [{ role: 'user', content: prompt }],
