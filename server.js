@@ -132,6 +132,26 @@ function canStartSession(session) {
   );
 }
 
+function areSlotAssignmentsEqual(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+    return false;
+  }
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function didSetupChange(prevSetup, nextSetup) {
+  return (
+    prevSetup.isCreepy !== nextSetup.isCreepy ||
+    prevSetup.difficulty !== nextSetup.difficulty ||
+    prevSetup.langLevel !== nextSetup.langLevel ||
+    prevSetup.lexicalTopic !== nextSetup.lexicalTopic ||
+    !areSlotAssignmentsEqual(prevSetup.slotAssignments, nextSetup.slotAssignments)
+  );
+}
+
 function touchSession(session) {
   session.updatedAt = Date.now();
 }
@@ -555,6 +575,12 @@ app.post('/api/pvp/sessions/:sessionId/setup', (req, res) => {
   if (typeof safePatch.lexicalTopic === 'string') nextSetup.lexicalTopic = safePatch.lexicalTopic;
   if (Array.isArray(safePatch.slotAssignments) && safePatch.slotAssignments.length === PVP_SLOT_IDS.length) {
     nextSetup.slotAssignments = safePatch.slotAssignments.map(topic => (typeof topic === 'string' ? topic : null));
+  }
+
+  const setupChanged = didSetupChange(session.setup, nextSetup);
+  if (!setupChanged) {
+    res.json({ session: serializeSession(session, playerToken) });
+    return;
   }
 
   session.setup = nextSetup;
