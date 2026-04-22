@@ -115,6 +115,44 @@ body {
   font-size: 1em;
 }
 
+#pvp-session-code,
+#pvp-role {
+  width: 100%;
+  padding: 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  border-radius: 4px;
+  font-size: 1em;
+}
+
+.pvp-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pvp-row .btn-secondary {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.pvp-session-status {
+  padding: 10px 12px;
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 8px;
+  color: #8f8f8f;
+  font-size: 0.85em;
+  line-height: 1.45;
+}
+
+.pvp-ready-hint {
+  margin-top: 12px;
+  color: #9db8ff;
+  font-size: 0.9em;
+}
+
 /* Toggle switch */
 .toggle-container { display: flex; align-items: center; gap: 12px; }
 .toggle-label { font-size: 0.9em; color: #aaa; }
@@ -400,6 +438,15 @@ body {
   border-radius: 8px; font-size: 1.1em; border: 1px solid #cc4422; color: #ff8866;
 }
 
+#pvp-role-indicator {
+  background: rgba(0,0,0,0.7);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.95em;
+  border: 1px solid #2e5fa3;
+  color: #a8d0ff;
+}
+
 .hud-icon { margin-right: 4px; }
 
 #status-effects { display: flex; gap: 8px; }
@@ -590,6 +637,8 @@ body.calm-mode .loading-spinner { border-top-color: #4a9eff; }
 
   .lexical-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
   .lexical-btn { font-size: 0.8em; padding: 10px 6px; }
+
+  .pvp-row { flex-direction: column; }
 
   .bonus-slots { gap: 6px; }
   .bonus-slot { min-width: 90px; padding: 10px 6px; }
