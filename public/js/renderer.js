@@ -57,6 +57,10 @@ class DungeonRenderer {
     this.treasureMeshes = [];
     this.monsterMeshes = [];
     this.baitMesh = null;
+    this.trapMeshes = [];
+    this.trailMeshes = [];
+    this.huntZoneMesh = null;
+    this.remoteRunnerMesh = null;
     this.playerMesh = null;
     this.playerLight = null;
     this.playerFillLight = null;
@@ -1070,6 +1074,44 @@ class DungeonRenderer {
     mesh.children[0].position.y = this.TILE_SIZE * 0.3 + Math.sin(time * 2 + index * 2) * 0.15;
   }
 
+  createRemoteRunner(x, y) {
+    if (this.remoteRunnerMesh) {
+      this.scene.remove(this.remoteRunnerMesh);
+      if (this.remoteRunnerMesh.geometry) this.remoteRunnerMesh.geometry.dispose();
+      if (this.remoteRunnerMesh.material) this.remoteRunnerMesh.material.dispose();
+    }
+
+    const T = this.TILE_SIZE;
+    const geo = new THREE.SphereGeometry(T * 0.26, 14, 14);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x77ffaa,
+      emissive: 0x1f6f44,
+      emissiveIntensity: 0.5,
+      roughness: 0.35,
+      metalness: 0.2,
+      transparent: true,
+    });
+    this.remoteRunnerMesh = new THREE.Mesh(geo, mat);
+    this.remoteRunnerMesh.position.set(x * T, T * 0.26, y * T);
+    this.remoteRunnerMesh.visible = false;
+    this.remoteRunnerMesh.castShadow = true;
+    this.scene.add(this.remoteRunnerMesh);
+  }
+
+  updateRemoteRunner(x, y, isVisible) {
+    if (!this.remoteRunnerMesh) return;
+    const T = this.TILE_SIZE;
+    const targetX = x * T;
+    const targetZ = y * T;
+    this.remoteRunnerMesh.position.x += (targetX - this.remoteRunnerMesh.position.x) * 0.18;
+    this.remoteRunnerMesh.position.z += (targetZ - this.remoteRunnerMesh.position.z) * 0.18;
+    this.remoteRunnerMesh.visible = isVisible;
+    if (isVisible) {
+      const time = this.clock.getElapsedTime();
+      this.remoteRunnerMesh.position.y = T * 0.26 + Math.sin(time * 3.2) * 0.05;
+    }
+  }
+
   placeBait(x, y) {
     if (this.baitMesh) {
       this.scene.remove(this.baitMesh);
@@ -1087,6 +1129,91 @@ class DungeonRenderer {
       this.scene.remove(this.baitMesh);
       this.baitMesh = null;
     }
+  }
+
+  setTrapMarkers(traps, visible = true) {
+    this.trapMeshes.forEach(mesh => this.scene.remove(mesh));
+    this.trapMeshes.forEach(mesh => {
+      mesh.geometry?.dispose();
+      mesh.material?.dispose();
+    });
+    this.trapMeshes = [];
+
+    if (!visible || !Array.isArray(traps)) return;
+
+    const T = this.TILE_SIZE;
+    traps.forEach((trap) => {
+      const geo = new THREE.TorusGeometry(T * 0.16, T * 0.04, 8, 18);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x66ccff,
+        emissive: 0x1a5f88,
+        emissiveIntensity: 0.55,
+        roughness: 0.35,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(trap.x * T, T * 0.08, trap.y * T);
+      mesh.rotation.x = Math.PI / 2;
+      this.scene.add(mesh);
+      this.trapMeshes.push(mesh);
+    });
+  }
+
+  setTrailMarkers(points, visible = true) {
+    this.trailMeshes.forEach(mesh => this.scene.remove(mesh));
+    this.trailMeshes.forEach(mesh => {
+      mesh.geometry?.dispose();
+      mesh.material?.dispose();
+    });
+    this.trailMeshes = [];
+
+    if (!visible || !Array.isArray(points)) return;
+
+    const T = this.TILE_SIZE;
+    points.forEach((point, index) => {
+      const geo = new THREE.CircleGeometry(T * 0.12, 12);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xff8844,
+        transparent: true,
+        opacity: Math.max(0.2, 0.85 - index * 0.08),
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(point.x * T, 0.04, point.y * T);
+      this.scene.add(mesh);
+      this.trailMeshes.push(mesh);
+    });
+  }
+
+  showHuntZone(zone) {
+    this.clearHuntZone();
+    if (!zone) return;
+
+    const T = this.TILE_SIZE;
+    const width = (zone.maxX - zone.minX + 1) * T;
+    const height = (zone.maxY - zone.minY + 1) * T;
+    const geo = new THREE.PlaneGeometry(width, height);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff5533,
+      transparent: true,
+      opacity: 0.2,
+      side: THREE.DoubleSide,
+    });
+    this.huntZoneMesh = new THREE.Mesh(geo, mat);
+    this.huntZoneMesh.rotation.x = -Math.PI / 2;
+    this.huntZoneMesh.position.set(
+      (zone.minX + zone.maxX) * T * 0.5,
+      0.03,
+      (zone.minY + zone.maxY) * T * 0.5
+    );
+    this.scene.add(this.huntZoneMesh);
+  }
+
+  clearHuntZone() {
+    if (!this.huntZoneMesh) return;
+    this.scene.remove(this.huntZoneMesh);
+    this.huntZoneMesh.geometry?.dispose();
+    this.huntZoneMesh.material?.dispose();
+    this.huntZoneMesh = null;
   }
 
   setVisibleRadius(radius) {
@@ -1165,6 +1292,10 @@ class DungeonRenderer {
     this.treasureMeshes = [];
     this.monsterMeshes = [];
     this.baitMesh = null;
+    this.trapMeshes = [];
+    this.trailMeshes = [];
+    this.huntZoneMesh = null;
+    this.remoteRunnerMesh = null;
     this.playerMesh = null;
     this.playerLight = null;
     this.playerFillLight = null;

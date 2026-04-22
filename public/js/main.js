@@ -1,8 +1,7 @@
-// Entry point - multi-step menu, grammar slot configuration, game initialization
+// Entry point - multi-step menu, lobby sync, game initialization
 
 const game = new Game();
 
-// Restore player name
 const savedName = localStorage.getItem('morskoy_player_name');
 if (savedName) {
   document.addEventListener('DOMContentLoaded', () => {
@@ -11,57 +10,162 @@ if (savedName) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const pvp = new PvpSessionClient();
 
-  // ===== STATE =====
   let selectedLevel = null;
   let selectedLexical = null;
-  let selectedGrammar = null; // currently highlighted grammar tag
-  let selectedSlotIdx = null; // currently highlighted slot
-  const slotAssignments = [null, null, null, null, null]; // grammarTopic per slot
+  let selectedGrammar = null;
+  let selectedSlotIdx = null;
+  const slotAssignments = [null, null, null, null, null];
+  let setupSyncTimer = null;
+  let sessionGameStarted = false;
+  let pvpInitInFlight = false;
 
-  // ===== STEP NAVIGATION =====
+  const gameModeEl = document.getElementById('game-mode');
+  const matchTypeEl = document.getElementById('match-type');
+  const monsterCountGroup = document.getElementById('monster-count-group');
+  const difficultyGroup = document.getElementById('difficulty-group');
+  const pvpSessionGroup = document.getElementById('pvp-session-group');
+  const pvpRoleEl = document.getElementById('pvp-role');
+  const pvpCodeEl = document.getElementById('pvp-session-code');
+  const pvpStatusEl = document.getElementById('pvp-session-status');
+  const readyHintEl = document.getElementById('pvp-ready-hint');
+  const playerNameEl = document.getElementById('player-name');
+  const startBtn = document.getElementById('start-btn');
+
+  function isPvpMode() {
+    return gameModeEl.value === 'chase' && matchTypeEl.value === 'pvp';
+  }
+
+  function currentRole() {
+    return pvp.session?.viewerRole || pvp.role || pvpRoleEl.value || 'runner';
+  }
+
+  function currentBonusSlots() {
+    return getBonusSlots(gameModeEl.value, currentRole());
+  }
+
+  function currentViewerReady() {
+    const session = pvp.session;
+    if (!session) return false;
+    const role = session.viewerRole || pvp.role || pvpRoleEl.value || 'runner';
+    return Boolean(session.ready?.[role]);
+  }
+
   function showStep(stepNum) {
     for (let i = 1; i <= 4; i++) {
       const el = document.getElementById(`setup-step${i}`);
-      if (i === stepNum) el.classList.remove('hidden');
-      else el.classList.add('hidden');
+      el.classList.toggle('hidden', i !== stepNum);
     }
   }
 
-  // Step 1 -> 2
-  document.getElementById('to-step2-btn').addEventListener('click', () => showStep(2));
-  document.getElementById('back-to-step1').addEventListener('click', () => showStep(1));
+  function syncModeControls() {
+    const chaseMode = gameModeEl.value === 'chase';
+    const pvpMode = isPvpMode();
+    monsterCountGroup.classList.toggle('hidden', chaseMode);
+    difficultyGroup.classList.toggle('hidden', pvpMode);
+    pvpSessionGroup.classList.toggle('hidden', !chaseMode || matchTypeEl.value !== 'pvp');
+    readyHintEl.classList.toggle('hidden', !pvpMode);
+    _renderSlots();
+    _updateStartButton();
+  }
 
-  // Chase mode forces a single predator — hide the monster-count option in that case.
-  const gameModeEl = document.getElementById('game-mode');
-  const monsterCountGroup = document.getElementById('monster-count-group');
-  function _syncMonsterCountVisibility() {
-    if (gameModeEl.value === 'chase') {
-      monsterCountGroup.classList.add('hidden');
+  function collectSetupPatch() {
+    return {
+      isCreepy: document.getElementById('creepy-mode').checked,
+      difficulty: document.getElementById('difficulty').value,
+      langLevel: selectedLevel,
+      lexicalTopic: selectedLexical,
+      slotAssignments: [...slotAssignments],
+    };
+  }
+
+  function schedulePvpSetupSync() {
+    if (!isPvpMode() || !pvp.isActive) return;
+    clearTimeout(setupSyncTimer);
+    setupSyncTimer = setTimeout(() => {
+      pvp.updateSetup(collectSetupPatch()).catch(err => {
+        console.warn('Failed to sync lobby setup:', err);
+        renderPvpStatus(err.message);
+      });
+    }, 120);
+  }
+
+  function renderPvpStatus(extraMessage = '') {
+    if (!isPvpMode()) {
+      pvpStatusEl.textContent = 'PVP-комната ещё не создана.';
+      readyHintEl.textContent = '';
+      readyHintEl.classList.add('hidden');
+      return;
+    }
+
+    if (!pvp.session) {
+      pvpStatusEl.textContent = extraMessage || 'Создайте комнату или войдите по коду.';
+      readyHintEl.textContent = '';
+      readyHintEl.classList.remove('hidden');
+      return;
+    }
+
+    const session = pvp.session;
+    const runner = session.players.runner;
+    const hunter = session.players.hunter;
+    const statusLines = [
+      `Код: ${session.id}`,
+      `Вы: ${session.viewerRole === 'runner' ? 'бегун' : 'хищник'}`,
+      `Бегун: ${runner ? `${runner.name}${session.ready.runner ? ' (готов)' : ' (ждёт)'}` : 'пусто'}`,
+      `Хищник: ${hunter ? `${hunter.name}${session.ready.hunter ? ' (готов)' : ' (ждёт)'}` : 'пусто'}`,
+    ];
+    pvpStatusEl.textContent = statusLines.join(' | ');
+
+    if (session.phase === 'awaiting_init') {
+      readyHintEl.textContent = 'Оба игрока готовы. Запускаем общую карту...';
+    } else if (session.phase === 'in_game') {
+      readyHintEl.textContent = 'Матч уже идёт.';
+    } else if (session.ready.runner || session.ready.hunter) {
+      readyHintEl.textContent = 'Один игрок уже готов. Ждём второго перед стартом.';
     } else {
-      monsterCountGroup.classList.remove('hidden');
+      readyHintEl.textContent = extraMessage || 'Нажмите «Готов», когда оба увидят общий набор тем.';
     }
+    readyHintEl.classList.remove('hidden');
   }
-  gameModeEl.addEventListener('change', _syncMonsterCountVisibility);
-  _syncMonsterCountVisibility();
 
-  // Step 2 -> 3 (level selection)
-  document.querySelectorAll('.level-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-      selectedLevel = btn.dataset.level;
-      // Auto-advance to step 3
-      setTimeout(() => {
-        _buildLexicalGrid();
-        showStep(3);
-      }, 200);
+  function applySessionSetup(session) {
+    if (!session) return;
+
+    const setup = session.setup || {};
+    matchTypeEl.value = 'pvp';
+    gameModeEl.value = 'chase';
+    pvpRoleEl.value = session.viewerRole || pvpRoleEl.value;
+
+    if (setup.langLevel) selectedLevel = setup.langLevel;
+    if (setup.lexicalTopic) selectedLexical = setup.lexicalTopic;
+    if (Array.isArray(setup.slotAssignments)) {
+      for (let i = 0; i < slotAssignments.length; i++) {
+        slotAssignments[i] = setup.slotAssignments[i] || null;
+      }
+    }
+
+    if (typeof setup.isCreepy === 'boolean') {
+      document.getElementById('creepy-mode').checked = setup.isCreepy;
+    }
+    if (setup.difficulty) {
+      document.getElementById('difficulty').value = setup.difficulty;
+    }
+
+    syncModeControls();
+    _renderSlots();
+    _renderGrammarPicker();
+    _buildLexicalGrid();
+    _updateLevelButtons();
+    _updateStartButton();
+  }
+
+  function _updateLevelButtons() {
+    document.querySelectorAll('.level-btn').forEach(btn => {
+      btn.classList.toggle('selected', btn.dataset.level === selectedLevel);
     });
-  });
+  }
 
-  document.getElementById('back-to-step2').addEventListener('click', () => showStep(2));
-
-  // ===== STEP 3: LEXICAL TOPICS =====
   function _buildLexicalGrid() {
     const grid = document.getElementById('lexical-grid');
     grid.innerHTML = '';
@@ -69,46 +173,42 @@ document.addEventListener('DOMContentLoaded', () => {
       const btn = document.createElement('button');
       btn.className = 'lexical-btn';
       btn.textContent = topic;
+      btn.classList.toggle('selected', topic === selectedLexical);
       btn.addEventListener('click', () => {
-        grid.querySelectorAll('.lexical-btn').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
         selectedLexical = topic;
-        // Auto-advance to step 4
+        _buildLexicalGrid();
+        schedulePvpSetupSync();
         setTimeout(() => {
           _buildStep4();
           showStep(4);
-        }, 200);
+        }, 150);
       });
       grid.appendChild(btn);
     });
   }
 
-  document.getElementById('back-to-step3').addEventListener('click', () => showStep(3));
-
-  // ===== STEP 4: GRAMMAR SLOTS =====
   function _buildStep4() {
     selectedGrammar = null;
     selectedSlotIdx = null;
-
-    // Reset slot assignments (keep slot 0 empty — Wortstellung needs a grammar topic)
-    for (let i = 0; i < 5; i++) slotAssignments[i] = null;
-
     _renderSlots();
     _renderGrammarPicker();
     _updateStartButton();
   }
 
   function _renderSlots() {
-    const slotsContainer = document.getElementById('bonus-slots');
-    const slotEls = slotsContainer.querySelectorAll('.bonus-slot');
+    const slots = currentBonusSlots();
+    const slotEls = document.getElementById('bonus-slots').querySelectorAll('.bonus-slot');
 
     slotEls.forEach((el, i) => {
       const grammar = slotAssignments[i];
-      el.classList.remove('selected-slot', 'has-topic', 'empty');
+      const slotDef = slots[i];
+
+      el.classList.remove('selected-slot', 'has-topic', 'empty', 'filled');
+      el.querySelector('.slot-bonus').textContent = slotDef?.bonusLabel || '';
 
       if (grammar) {
         el.classList.add('has-topic');
-        if (i === 0) {
+        if (slotDef?.isWortstellung) {
           el.querySelector('.slot-topic').textContent = 'Wortstellung';
           el.querySelector('.slot-grammar').textContent = `+ ${grammar}`;
         } else {
@@ -116,8 +216,8 @@ document.addEventListener('DOMContentLoaded', () => {
           el.querySelector('.slot-grammar').textContent = '';
         }
       } else {
-        el.classList.add('empty');
-        if (i === 0) {
+        el.classList.add(slotDef?.fixed ? 'filled' : 'empty');
+        if (slotDef?.isWortstellung) {
           el.querySelector('.slot-topic').textContent = 'Wortstellung';
           el.querySelector('.slot-grammar').textContent = '+ выберите тему';
         } else {
@@ -130,44 +230,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Slot click handlers
-  document.querySelectorAll('.bonus-slot').forEach(el => {
-    el.addEventListener('click', () => {
-      const idx = parseInt(el.dataset.slot);
-
-      // If a grammar topic is selected, assign it to this slot
-      if (selectedGrammar) {
-        // Remove grammar from any other slot it was in
-        for (let i = 0; i < 5; i++) {
-          if (slotAssignments[i] === selectedGrammar) slotAssignments[i] = null;
-        }
-        slotAssignments[idx] = selectedGrammar;
-        selectedGrammar = null;
-        selectedSlotIdx = null;
-        _renderSlots();
-        _renderGrammarPicker();
-        _updateStartButton();
-        return;
-      }
-
-      // Otherwise toggle slot selection (to clear it)
-      if (selectedSlotIdx === idx) {
-        // Clear this slot
-        slotAssignments[idx] = null;
-        selectedSlotIdx = null;
-      } else {
-        selectedSlotIdx = idx;
-      }
-      _renderSlots();
-      _renderGrammarPicker();
-      _updateStartButton();
-    });
-  });
-
   function _renderGrammarPicker() {
     const picker = document.getElementById('grammar-picker');
     picker.innerHTML = '';
-
     const usedTopics = slotAssignments.filter(Boolean);
 
     GRAMMAR_TOPICS.forEach(topic => {
@@ -175,31 +240,21 @@ document.addEventListener('DOMContentLoaded', () => {
       tag.className = 'grammar-tag';
       tag.textContent = topic;
 
-      if (usedTopics.includes(topic)) {
-        tag.classList.add('used');
-      }
-
-      if (selectedGrammar === topic) {
-        tag.classList.add('selected-grammar');
-      }
+      if (usedTopics.includes(topic)) tag.classList.add('used');
+      if (selectedGrammar === topic) tag.classList.add('selected-grammar');
 
       tag.addEventListener('click', () => {
         if (usedTopics.includes(topic)) return;
 
-        if (selectedGrammar === topic) {
-          selectedGrammar = null;
-        } else {
-          selectedGrammar = topic;
-        }
-
-        // If a slot is selected, auto-assign
+        selectedGrammar = selectedGrammar === topic ? null : topic;
         if (selectedGrammar && selectedSlotIdx !== null) {
-          for (let i = 0; i < 5; i++) {
+          for (let i = 0; i < slotAssignments.length; i++) {
             if (slotAssignments[i] === selectedGrammar) slotAssignments[i] = null;
           }
           slotAssignments[selectedSlotIdx] = selectedGrammar;
           selectedGrammar = null;
           selectedSlotIdx = null;
+          schedulePvpSetupSync();
         }
 
         _renderSlots();
@@ -212,47 +267,95 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function _updateStartButton() {
-    const allFilled = slotAssignments.every(s => s !== null);
-    document.getElementById('start-btn').disabled = !allFilled;
+    const allFilled = slotAssignments.every(Boolean);
+    const setupReady = allFilled && selectedLevel && selectedLexical;
+    if (!isPvpMode()) {
+      startBtn.disabled = !setupReady;
+      startBtn.textContent = 'НАЧАТЬ ИГРУ';
+      return;
+    }
+
+    const session = pvp.session;
+    const localReady = currentViewerReady();
+    const isLaunching = session?.phase === 'awaiting_init';
+    const isRunning = session?.phase === 'in_game';
+
+    startBtn.disabled = !(
+      setupReady &&
+      pvp.isActive &&
+      session?.canStart &&
+      !localReady &&
+      !isLaunching &&
+      !isRunning
+    );
+
+    if (isRunning) {
+      startBtn.textContent = 'ИГРА ИДЁТ';
+    } else if (isLaunching) {
+      startBtn.textContent = 'ЗАПУСК...';
+    } else if (localReady) {
+      startBtn.textContent = 'ЖДЁМ ИГРОКА';
+    } else {
+      startBtn.textContent = 'ГОТОВ';
+    }
   }
 
-  // ===== START GAME =====
-  document.getElementById('start-btn').addEventListener('click', () => {
-    const nameInput = document.getElementById('player-name');
-    const playerName = nameInput.value.trim() || 'Spieler';
-    localStorage.setItem('morskoy_player_name', playerName);
-
-    // Build slot configs
-    const slotConfigs = BONUS_SLOTS.map((slotDef, i) => ({
+  function buildSlotConfigsForRole(role) {
+    return getBonusSlots(gameModeEl.value, role).map((slotDef, index) => ({
       slotDef,
-      grammarTopic: slotAssignments[i],
+      grammarTopic: slotAssignments[index],
     }));
+  }
 
-    const settings = {
+  function buildSharedSettings(slotConfigs, extra = {}) {
+    return {
       isCreepy: document.getElementById('creepy-mode').checked,
-      monsterCount: parseInt(document.getElementById('monster-count').value),
+      monsterCount: parseInt(document.getElementById('monster-count').value, 10),
       difficulty: document.getElementById('difficulty').value,
-      gameMode: document.getElementById('game-mode').value,
+      gameMode: gameModeEl.value,
+      matchType: matchTypeEl.value,
       langLevel: selectedLevel,
-      playerName,
+      playerName: playerNameEl.value.trim() || 'Spieler',
       level: 1,
       lexicalTopic: selectedLexical,
       slotConfigs,
+      ...extra,
     };
+  }
 
-    const hasPlayed = localStorage.getItem('morskoy_tutorial_seen');
-    if (!hasPlayed) {
-      localStorage.setItem('morskoy_tutorial_seen', '1');
-      _showTutorial(() => _startGame(settings));
-    } else {
-      _startGame(settings);
+  function findNearestPathCell(mazeGen, targetX, targetY) {
+    const maxRadius = Math.max(mazeGen.width, mazeGen.height);
+    for (let radius = 0; radius <= maxRadius; radius++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+          const x = targetX + dx;
+          const y = targetY + dy;
+          if (x < 0 || x >= mazeGen.width || y < 0 || y >= mazeGen.height) continue;
+          if (mazeGen.grid[y][x] === 1) return { x, y };
+        }
+      }
     }
-  });
+    return { x: 1, y: 1 };
+  }
 
-  function _startGame(settings) {
-    document.getElementById('menu-screen').classList.remove('active');
-    document.getElementById('game-screen').classList.add('active');
-    game.init(settings);
+  function buildPvpInitPayload() {
+    const levelCfg = LEVEL_CONFIG[0];
+    const mazeGen = new MazeGenerator(levelCfg.mazeW, levelCfg.mazeH);
+    mazeGen.generate();
+    const hunterSpawn = findNearestPathCell(mazeGen, mazeGen.width - 2, mazeGen.height - 2);
+    return {
+      maze: {
+        width: mazeGen.width,
+        height: mazeGen.height,
+        grid: mazeGen.grid.map(row => [...row]),
+      },
+      players: {
+        runner: { x: 1, y: 1 },
+        hunter: hunterSpawn,
+      },
+      escapeTarget: 8,
+    };
   }
 
   function _showTutorial(onClose) {
@@ -267,21 +370,235 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBtn.addEventListener('click', handler);
   }
 
-  // ===== DIRECTION BUTTONS =====
-  document.querySelectorAll('.dir-btn').forEach(btn => {
+  function maybeWithTutorial(next) {
+    const hasPlayed = localStorage.getItem('morskoy_tutorial_seen');
+    if (!hasPlayed) {
+      localStorage.setItem('morskoy_tutorial_seen', '1');
+      _showTutorial(next);
+      return;
+    }
+    next();
+  }
+
+  function startSoloGame() {
+    const playerName = playerNameEl.value.trim() || 'Spieler';
+    localStorage.setItem('morskoy_player_name', playerName);
+    const settings = buildSharedSettings(buildSlotConfigsForRole('runner'));
+    document.getElementById('menu-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+    game.init(settings);
+  }
+
+  async function startPvpReadyFlow() {
+    if (!pvp.session) return;
+    const playerName = playerNameEl.value.trim() || 'Spieler';
+    localStorage.setItem('morskoy_player_name', playerName);
+
+    try {
+      await pvp.updateSetup(collectSetupPatch());
+      await pvp.setReady(true);
+      renderPvpStatus();
+    } catch (err) {
+      renderPvpStatus(err.message);
+    }
+  }
+
+  function startPvpGame(session) {
+    if (!session?.game || sessionGameStarted) return;
+    sessionGameStarted = true;
+
+    const slotConfigs = getBonusSlots('chase', session.viewerRole).map((slotDef, index) => ({
+      slotDef,
+      grammarTopic: session.setup.slotAssignments[index],
+    }));
+
+    const settings = {
+      isCreepy: session.setup.isCreepy,
+      monsterCount: 1,
+      difficulty: session.setup.difficulty || 'medium',
+      gameMode: 'chase',
+      matchType: 'pvp',
+      langLevel: session.setup.langLevel,
+      playerName: playerNameEl.value.trim() || 'Spieler',
+      level: 1,
+      lexicalTopic: session.setup.lexicalTopic,
+      slotConfigs,
+      pvp: {
+        client: pvp,
+        role: session.viewerRole,
+        session,
+        gameState: session.game,
+      },
+    };
+
+    document.getElementById('menu-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+    game.init(settings);
+  }
+
+  async function returnToMenu({ leavePvp = false } = {}) {
+    game.destroy();
+    game.restart();
+    sessionGameStarted = false;
+
+    document.getElementById('game-screen').classList.remove('active');
+    document.getElementById('win-screen').classList.remove('active');
+    document.getElementById('lose-screen').classList.remove('active');
+    document.getElementById('menu-screen').classList.add('active');
+    showStep(1);
+
+    if (leavePvp && pvp.isActive) {
+      await pvp.leaveSession();
+    }
+
+    renderPvpStatus();
+  }
+
+  document.getElementById('to-step2-btn').addEventListener('click', () => showStep(2));
+  document.getElementById('back-to-step1').addEventListener('click', () => showStep(1));
+  document.getElementById('back-to-step2').addEventListener('click', () => showStep(2));
+  document.getElementById('back-to-step3').addEventListener('click', () => showStep(3));
+
+  gameModeEl.addEventListener('change', syncModeControls);
+  matchTypeEl.addEventListener('change', syncModeControls);
+  pvpRoleEl.addEventListener('change', () => {
+    syncModeControls();
+    renderPvpStatus();
+  });
+  document.getElementById('creepy-mode').addEventListener('change', schedulePvpSetupSync);
+  document.getElementById('difficulty').addEventListener('change', schedulePvpSetupSync);
+  playerNameEl.addEventListener('change', () => {
+    localStorage.setItem('morskoy_player_name', playerNameEl.value.trim());
+  });
+
+  document.querySelectorAll('.level-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      game.movePlayer(btn.dataset.dir);
+      selectedLevel = btn.dataset.level;
+      _updateLevelButtons();
+      schedulePvpSetupSync();
+      setTimeout(() => {
+        _buildLexicalGrid();
+        showStep(3);
+      }, 150);
     });
   });
 
-  // ===== IN-GAME KEYBOARD =====
+  document.querySelectorAll('.bonus-slot').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.slot, 10);
+      if (selectedGrammar) {
+        for (let i = 0; i < slotAssignments.length; i++) {
+          if (slotAssignments[i] === selectedGrammar) slotAssignments[i] = null;
+        }
+        slotAssignments[idx] = selectedGrammar;
+        selectedGrammar = null;
+        selectedSlotIdx = null;
+        schedulePvpSetupSync();
+      } else if (selectedSlotIdx === idx) {
+        slotAssignments[idx] = null;
+        selectedSlotIdx = null;
+        schedulePvpSetupSync();
+      } else {
+        selectedSlotIdx = idx;
+      }
+
+      _renderSlots();
+      _renderGrammarPicker();
+      _updateStartButton();
+    });
+  });
+
+  document.getElementById('pvp-create-btn').addEventListener('click', async () => {
+    try {
+      const playerName = playerNameEl.value.trim() || 'Spieler';
+      await pvp.createSession(playerName, pvpRoleEl.value);
+      await pvp.updateSetup(collectSetupPatch());
+      renderPvpStatus('Комната создана. Отправьте код второму игроку.');
+      _updateStartButton();
+    } catch (err) {
+      renderPvpStatus(err.message);
+    }
+  });
+
+  document.getElementById('pvp-join-btn').addEventListener('click', async () => {
+    const code = pvpCodeEl.value.trim().toUpperCase();
+    if (!code) {
+      renderPvpStatus('Введите код сессии.');
+      return;
+    }
+
+    try {
+      const playerName = playerNameEl.value.trim() || 'Spieler';
+      await pvp.joinSession(code, playerName, pvpRoleEl.value);
+      applySessionSetup(pvp.session);
+      renderPvpStatus('Вы подключились к общей комнате.');
+      _updateStartButton();
+    } catch (err) {
+      renderPvpStatus(err.message);
+    }
+  });
+
+  pvp.onChange(async (session) => {
+    if (!session) {
+      renderPvpStatus();
+      _updateStartButton();
+      return;
+    }
+
+    applySessionSetup(session);
+    renderPvpStatus();
+
+    if (session.phase === 'awaiting_init' && session.hostRole === session.viewerRole && !session.game && !pvpInitInFlight) {
+      pvpInitInFlight = true;
+      try {
+        await pvp.initGame(buildPvpInitPayload());
+      } catch (err) {
+        renderPvpStatus(err.message);
+      } finally {
+        pvpInitInFlight = false;
+      }
+      return;
+    }
+
+    if ((session.phase === 'in_game' || session.phase === 'finished') && session.game) {
+      if (!sessionGameStarted) {
+        if (session.phase === 'in_game') {
+          startPvpGame(session);
+        }
+      } else {
+        game.syncPvpSession(session);
+      }
+    }
+
+    if (session.phase === 'lobby' || session.phase === 'awaiting_init') {
+      sessionGameStarted = false;
+    }
+    if (session.phase !== 'awaiting_init') {
+      pvpInitInFlight = false;
+    }
+  });
+
+  startBtn.addEventListener('click', () => {
+    maybeWithTutorial(() => {
+      if (isPvpMode()) {
+        startPvpReadyFlow();
+      } else {
+        startSoloGame();
+      }
+    });
+  });
+
+  document.querySelectorAll('.dir-btn').forEach(btn => {
+    btn.addEventListener('click', () => game.movePlayer(btn.dataset.dir));
+  });
+
   document.addEventListener('keydown', (e) => {
     if (game.state === 'direction_select') {
       const keyMap = {
-        'ArrowUp': 'up', 'w': 'up', 'W': 'up',
-        'ArrowDown': 'down', 's': 'down', 'S': 'down',
-        'ArrowLeft': 'left', 'a': 'left', 'A': 'left',
-        'ArrowRight': 'right', 'd': 'right', 'D': 'right',
+        ArrowUp: 'up', w: 'up', W: 'up',
+        ArrowDown: 'down', s: 'down', S: 'down',
+        ArrowLeft: 'left', a: 'left', A: 'left',
+        ArrowRight: 'right', d: 'right', D: 'right',
       };
       if (keyMap[e.key]) {
         e.preventDefault();
@@ -290,8 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (game.state === 'topic_select') {
-      // 1-5 selects corresponding slot
-      const idx = parseInt(e.key) - 1;
+      const idx = parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < game.slotConfigs.length) {
         game.selectTopic(game.slotConfigs[idx].slotDef.id);
       }
@@ -299,15 +615,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (game.state === 'question') {
       const optBtns = document.querySelectorAll('#question-options .option-btn');
-      const idx = parseInt(e.key) - 1;
+      const idx = parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < optBtns.length && !optBtns[idx].disabled) {
         optBtns[idx].click();
       }
     }
   });
 
-  // ===== PINCH TO RESIZE QUESTION PANEL (mobile) =====
-  (function() {
+  (function enablePinchResize() {
     const panel = document.getElementById('question-panel');
     let baseScale = 1;
     let startDist = 0;
@@ -315,7 +630,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const MIN_SCALE = 0.6;
     const MAX_SCALE = 1.4;
 
-    // Persist scale in sessionStorage
     const saved = sessionStorage.getItem('questionPanelScale');
     if (saved) {
       baseScale = parseFloat(saved);
@@ -351,18 +665,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { passive: true });
   })();
 
-  // ===== WIN/LOSE SCREENS =====
   document.getElementById('win-next').addEventListener('click', () => game.nextLevel());
 
   document.getElementById('win-restart').addEventListener('click', () => {
-    game.destroy();
-    game.restart();
-    document.getElementById('win-screen').classList.remove('active');
-    document.getElementById('menu-screen').classList.add('active');
-    showStep(1);
+    returnToMenu({ leavePvp: game.isPvp });
   });
 
   document.getElementById('lose-restart').addEventListener('click', () => {
+    if (game.isPvp) {
+      returnToMenu({ leavePvp: true });
+      return;
+    }
+
     game.destroy();
     document.getElementById('lose-screen').classList.remove('active');
     document.getElementById('game-screen').classList.add('active');
@@ -371,6 +685,7 @@ document.addEventListener('DOMContentLoaded', () => {
       monsterCount: game.monsterCountSetting,
       difficulty: game.difficulty,
       gameMode: game.gameMode,
+      matchType: game.matchType,
       langLevel: game.langLevel,
       playerName: game.playerName,
       level: game.currentLevel,
@@ -380,14 +695,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('lose-menu').addEventListener('click', () => {
-    game.destroy();
-    game.restart();
-    document.getElementById('lose-screen').classList.remove('active');
-    document.getElementById('menu-screen').classList.add('active');
-    showStep(1);
+    returnToMenu({ leavePvp: game.isPvp });
   });
 
-  // ===== LEADERBOARD =====
   document.getElementById('leaderboard-btn').addEventListener('click', () => {
     game.leaderboard.render();
     document.getElementById('menu-screen').classList.remove('active');
@@ -398,4 +708,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('leaderboard-screen').classList.remove('active');
     document.getElementById('menu-screen').classList.add('active');
   });
+
+  syncModeControls();
+  _buildLexicalGrid();
+  _buildStep4();
+  renderPvpStatus();
 });

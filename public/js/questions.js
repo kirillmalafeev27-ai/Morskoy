@@ -38,7 +38,7 @@ const LEXICAL_TOPICS = [
 ];
 
 // Bonus slot definitions (fixed bonuses, player assigns grammar topics)
-const BONUS_SLOTS = [
+const CLASSIC_BONUS_SLOTS = [
   { id: 'wortstellung', bonus: 'move2', bonusLabel: '2 хода', name: 'Wortstellung', isWortstellung: true, fixed: true },
   { id: 'slot2', bonus: 'move1', bonusLabel: '+1 ход', name: null },
   { id: 'slot3', bonus: 'camouflage', bonusLabel: 'Маскировка', name: null },
@@ -46,9 +46,37 @@ const BONUS_SLOTS = [
   { id: 'slot5', bonus: 'reveal', bonusLabel: 'Показать монстра', name: null },
 ];
 
+const CHASE_RUNNER_BONUS_SLOTS = [
+  { id: 'wortstellung', bonus: 'move2', bonusLabel: '2 хода', name: 'Wortstellung', isWortstellung: true, fixed: true },
+  { id: 'slot2', bonus: 'move1', bonusLabel: '+1 ход', name: null },
+  { id: 'slot3', bonus: 'camouflage', bonusLabel: 'Маскировка', name: null },
+  { id: 'slot4', bonus: 'trap', bonusLabel: 'Ловушка', name: null },
+  { id: 'slot5', bonus: 'dash', bonusLabel: 'Рывок', name: null },
+];
+
+const CHASE_HUNTER_BONUS_SLOTS = [
+  { id: 'wortstellung', bonus: 'move2', bonusLabel: '2 хода', name: 'Wortstellung', isWortstellung: true, fixed: true },
+  { id: 'slot2', bonus: 'move1', bonusLabel: '+1 ход', name: null },
+  { id: 'slot3', bonus: 'hunt_map', bonusLabel: 'Охотничий обзор', name: null },
+  { id: 'slot4', bonus: 'trail', bonusLabel: 'След', name: null },
+  { id: 'slot5', bonus: 'pounce', bonusLabel: 'Бросок', name: null },
+];
+
+function getBonusSlots(gameMode, role = 'runner') {
+  if (gameMode === 'chase') {
+    return role === 'hunter' ? CHASE_HUNTER_BONUS_SLOTS : CHASE_RUNNER_BONUS_SLOTS;
+  }
+  return CLASSIC_BONUS_SLOTS;
+}
+
+const BONUS_SLOTS = CLASSIC_BONUS_SLOTS;
+
 // Camouflage config: 5 player turns of invisibility, 3-minute cooldown
 const CAMOUFLAGE_TURNS = 5;
 const CAMOUFLAGE_COOLDOWN_MS = 3 * 60 * 1000;
+const TRAP_STUN_TURNS = 3;
+const HUNT_MAP_REVEAL_MS = 1500;
+const TRAIL_REVEAL_MS = 8000;
 
 class QuestionManager {
   constructor(level) {
@@ -62,20 +90,20 @@ class QuestionManager {
   setLevel(level) {
     if (this.level !== level) {
       this.level = level;
-      this.questionPool = {}; // level changed — pool invalid
+      this.questionPool = {}; // level changed - pool invalid
     }
   }
 
   setLexicalTopic(topic) {
     if (this.lexicalTopic !== topic) {
       this.lexicalTopic = topic;
-      this.questionPool = {}; // topic changed — pool invalid
+      this.questionPool = {}; // topic changed - pool invalid
     }
   }
 
   configureSlots(slotConfigs) {
     this.slots = slotConfigs;
-    // Don't clear pools here — they persist across games until exhausted
+    // Don't clear pools here - they persist across games until exhausted
   }
 
   // Fetch 10 questions for slots that have no pool yet
@@ -94,23 +122,18 @@ class QuestionManager {
     const pool = this.questionPool[slotId];
     if (!pool || pool.length === 0) return this._fallbackQuestion(slotConfig);
 
-    // Take first question from pool
     const q = pool.shift();
-    // Store it temporarily so we can put it back on wrong answer
     this._lastQuestion = { slotId, question: q };
     return this._formatQuestion(q, slotConfig);
   }
 
-  // Correct answer — question is gone (already removed from pool by shift)
   onCorrectAnswer(slotId) {
     this._lastQuestion = null;
-    // If pool is now empty, trigger background refetch for next game
     if (!this.questionPool[slotId] || this.questionPool[slotId].length === 0) {
       this._fetchForSlot(slotId);
     }
   }
 
-  // Wrong answer — put question back into pool at random position
   onWrongAnswer(slotId) {
     if (this._lastQuestion && this._lastQuestion.slotId === slotId) {
       const pool = this.questionPool[slotId];
@@ -122,7 +145,6 @@ class QuestionManager {
     }
   }
 
-  // Shuffle pools on new game (so order is fresh each game)
   shuffleAllPools() {
     for (const slotId of Object.keys(this.questionPool)) {
       const arr = this.questionPool[slotId];
@@ -135,7 +157,6 @@ class QuestionManager {
     }
   }
 
-  // Returns count of remaining questions per slot (for UI if needed)
   getPoolSize(slotId) {
     return (this.questionPool[slotId] || []).length;
   }
@@ -145,7 +166,10 @@ class QuestionManager {
     this.fetching[slotId] = true;
 
     const slotConfig = this.slots.find(s => s.slotDef.id === slotId);
-    if (!slotConfig) { this.fetching[slotId] = false; return; }
+    if (!slotConfig) {
+      this.fetching[slotId] = false;
+      return;
+    }
 
     try {
       const resp = await fetch('/api/generate-questions', {
@@ -164,7 +188,6 @@ class QuestionManager {
       const data = await resp.json();
 
       if (data.questions && data.questions.length > 0) {
-        // Shuffle received questions
         const qs = data.questions;
         for (let i = qs.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -206,7 +229,7 @@ class QuestionManager {
       slotDef: slotConfig.slotDef,
       grammarTopic: grammar,
       text: `Übung: ${grammar}`,
-      display: `[Упражнения закончились. Бонус выдан автоматически.]`,
+      display: '[Упражнения закончились. Бонус выдан автоматически.]',
       options: { options: ['OK', '—', '—', '—'], correctIndex: 0 },
       level: this.level,
     };

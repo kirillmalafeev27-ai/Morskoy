@@ -6,22 +6,22 @@ class Monster {
     this.x = x;
     this.y = y;
     this.maze = maze;
-    this.moveInterval = 4000; // ms between moves
+    this.moveInterval = 4000;
     this.timer = null;
-    this.baitTarget = null; // {x, y} if bait is active
+    this.baitTarget = null;
     this.baitTurnsLeft = 0;
-    this.wanderChance = 0.15; // 15% chance to wander randomly (scare tactic)
+    this.wanderChance = 0.15;
     this.isWandering = false;
     this.wanderSteps = 0;
     this.alive = true;
-    this.isBlind = false; // when true, can't track player (camouflage active)
-    this.onMove = null; // callback
+    this.isBlind = false;
+    this.stunTurns = 0;
+    this.onMove = null;
   }
 
   setBlind(blind) {
     this.isBlind = blind;
     if (blind) {
-      // drop any current tracking state so predator wanders purely randomly
       this.baitTarget = null;
       this.baitTurnsLeft = 0;
       this.isWandering = false;
@@ -47,12 +47,11 @@ class Monster {
   _scheduleMove() {
     if (!this.alive) return;
     this.timer = setTimeout(() => {
-      // Guard against iOS Safari firing batched timers after tab resume
       const now = Date.now();
       const elapsed = now - this._lastMoveTime;
       if (elapsed < this.moveInterval * 0.5) {
         this._scheduleMove();
-        return; // skip — timer fired too soon (batched catch-up)
+        return;
       }
       this._lastMoveTime = now;
       this._doMove();
@@ -63,37 +62,36 @@ class Monster {
   _doMove() {
     if (!this.alive) return;
 
-    // Camouflage active — predator can't see the runner and just wanders.
-    // It can still collide by chance if it steps onto the runner's tile.
+    if (this.stunTurns > 0) {
+      this.stunTurns--;
+      return;
+    }
+
     if (this.isBlind) {
       this._moveRandom();
       if (this.onMove) this.onMove(this.x, this.y);
       return;
     }
 
-    let targetX, targetY;
+    let targetX;
+    let targetY;
 
-    // If bait is active, go to bait
     if (this.baitTarget && this.baitTurnsLeft > 0) {
       targetX = this.baitTarget.x;
       targetY = this.baitTarget.y;
       this.baitTurnsLeft--;
 
-      // Reached bait?
       if (this.x === targetX && this.y === targetY) {
         this.baitTarget = null;
         this.baitTurnsLeft = 0;
       }
-    }
-    // Random wander (scare tactic)
-    else if (!this.isWandering && Math.random() < this.wanderChance) {
+    } else if (!this.isWandering && Math.random() < this.wanderChance) {
       this.isWandering = true;
-      this.wanderSteps = 2 + Math.floor(Math.random() * 3); // wander for 2-4 steps
+      this.wanderSteps = 2 + Math.floor(Math.random() * 3);
       this._moveRandom();
       if (this.onMove) this.onMove(this.x, this.y);
       return;
-    }
-    else if (this.isWandering) {
+    } else if (this.isWandering) {
       this.wanderSteps--;
       if (this.wanderSteps <= 0) {
         this.isWandering = false;
@@ -101,15 +99,12 @@ class Monster {
       this._moveRandom();
       if (this.onMove) this.onMove(this.x, this.y);
       return;
-    }
-    else {
-      // Chase player
+    } else {
       const playerPos = this.getPlayerPos();
       targetX = playerPos.x;
       targetY = playerPos.y;
     }
 
-    // Use BFS to move toward target
     this._moveToward(targetX, targetY);
 
     if (this.onMove) this.onMove(this.x, this.y);
@@ -126,13 +121,13 @@ class Monster {
   _moveRandom() {
     const dirs = [
       { x: 0, y: -1 }, { x: 1, y: 0 },
-      { x: 0, y: 1 },  { x: -1, y: 0 }
+      { x: 0, y: 1 }, { x: -1, y: 0 }
     ];
     const validDirs = dirs.filter(d => {
       const nx = this.x + d.x;
       const ny = this.y + d.y;
       return nx >= 0 && nx < this.maze.width && ny >= 0 && ny < this.maze.height &&
-             this.maze.grid[ny][nx] === 1;
+        this.maze.grid[ny][nx] === 1;
     });
 
     if (validDirs.length > 0) {
@@ -144,8 +139,16 @@ class Monster {
 
   setBait(x, y) {
     this.baitTarget = { x, y };
-    this.baitTurnsLeft = 8; // chase bait for ~8 moves
+    this.baitTurnsLeft = 8;
     this.isWandering = false;
+  }
+
+  stun(turns) {
+    this.stunTurns = Math.max(this.stunTurns, turns);
+    this.baitTarget = null;
+    this.baitTurnsLeft = 0;
+    this.isWandering = false;
+    this.wanderSteps = 0;
   }
 
   getDistanceToPlayer() {
