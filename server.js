@@ -9,8 +9,10 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+const hasAitunnelKey = Boolean(process.env.AITUNNEL_API_KEY);
 const aiApiKey = process.env.AITUNNEL_API_KEY || process.env.OPENAI_API_KEY || '';
-const aiBaseUrl = process.env.AITUNNEL_API_KEY ? 'https://api.aitunnel.ru/v1' : undefined;
+const aiBaseUrl = hasAitunnelKey ? 'https://api.aitunnel.ru/v1' : undefined;
+const aiModel = process.env.AITUNNEL_MODEL || process.env.OPENAI_MODEL || (hasAitunnelKey ? 'gpt-5.4' : 'gpt-4.1-mini');
 let client = null;
 
 function getAiClient() {
@@ -975,7 +977,7 @@ Antworte NUR mit einem validen JSON-Array, KEIN Markdown, KEINE Erklärungen:
 
   try {
     const completion = await aiClient.chat.completions.create({
-      model: 'gpt-5.4',
+      model: aiModel,
       max_completion_tokens: 8192,
       messages: [{ role: 'user', content: prompt }],
     });

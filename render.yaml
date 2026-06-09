@@ -11,3 +11,5 @@ services:
         sync: false
       - key: AITUNNEL_API_KEY
         sync: false
+      - key: AITUNNEL_MODEL
+        value: gpt-5.4
