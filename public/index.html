@@ -25,7 +25,7 @@
             <label>Режим игры:</label>
             <select id="game-mode">
               <option value="classic" selected>Классический (сбор сокровищ)</option>
-              <option value="chase">Догонялки (побег от хищника)</option>
+              <option value="chase">Догонялки (3 сокровища и хищник)</option>
             </select>
           </div>
 
@@ -126,12 +126,12 @@
 
         <div id="bonus-slots" class="bonus-slots">
           <div class="bonus-slot filled" data-slot="0">
-            <div class="slot-bonus">2 хода</div>
+            <div class="slot-bonus">Рывок</div>
             <div class="slot-topic">Wortstellung</div>
             <div class="slot-grammar">+ выберите тему</div>
           </div>
           <div class="bonus-slot empty" data-slot="1">
-            <div class="slot-bonus">+1 ход</div>
+            <div class="slot-bonus">2 хода</div>
             <div class="slot-topic">Пусто</div>
             <div class="slot-grammar"></div>
           </div>
@@ -181,7 +181,7 @@
       </div>
       <div class="tutorial-step">
         <span class="step-icon">4.</span>
-        <strong>Классический режим</strong>: соберите 3 сокровища. <strong>Догонялки</strong>: выживайте, отвечая на вопросы, пока хищник вас не поймал
+        <strong>Классический режим</strong>: соберите 3 сокровища. <strong>Догонялки</strong>: соберите 3 сокровища, пока хищник вас не поймал
       </div>
       <div class="tutorial-step">
         <span class="step-icon">!</span>
@@ -256,7 +256,8 @@
       <p id="win-stats"></p>
       <div class="end-buttons">
         <button id="win-next" class="btn-primary">СЛЕДУЮЩИЙ УРОВЕНЬ</button>
-        <button id="win-restart" class="btn-secondary">В меню</button>
+        <button id="win-restart" class="btn-secondary">Попробовать снова</button>
+        <button id="win-menu" class="btn-secondary">В меню</button>
       </div>
     </div>
   </div>
