@@ -30,26 +30,26 @@ const pvpSessions = new Map();
 const PVP_SLOT_IDS = ['wortstellung', 'slot2', 'slot3', 'slot4', 'slot5'];
 const PVP_ROLE_BONUSES = {
   runner: {
-    wortstellung: 'move2',
-    slot2: 'move1',
+    wortstellung: 'dash',
+    slot2: 'move2',
     slot3: 'camouflage',
     slot4: 'trap',
     slot5: 'dash',
   },
   hunter: {
-    wortstellung: 'move2',
-    slot2: 'move1',
+    wortstellung: 'pounce',
+    slot2: 'move2',
     slot3: 'hunt_map',
     slot4: 'trail',
     slot5: 'pounce',
   },
 };
-const PVP_ESCAPE_TARGET = 8;
+const PVP_TREASURE_TARGET = 3;
 const PVP_CAMOUFLAGE_TURNS = 5;
 const PVP_TRAP_STUN_TURNS = 3;
+const PVP_TRAP_RADIUS = 2;
 const PVP_MAP_REVEAL_MS = 1500;
 const PVP_TRAIL_REVEAL_MS = 8000;
-const PVP_TRAIL_MAX_POINTS = 8;
 
 function makeSessionId() {
   let id = '';
@@ -179,11 +179,66 @@ function canWalk(maze, x, y) {
   );
 }
 
+function getWalkableCells(maze) {
+  const cells = [];
+  for (let y = 0; y < maze.height; y++) {
+    for (let x = 0; x < maze.width; x++) {
+      if (canWalk(maze, x, y)) cells.push({ x, y });
+    }
+  }
+  return cells;
+}
+
+function shuffleCells(cells) {
+  for (let i = cells.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
+  }
+  return cells;
+}
+
+function createRoundTreasures(maze, players, count = PVP_TREASURE_TARGET) {
+  const runner = players.runner;
+  const hunter = players.hunter;
+  const candidates = getWalkableCells(maze).filter(cell => {
+    const fromRunner = Math.abs(cell.x - runner.x) + Math.abs(cell.y - runner.y);
+    const fromHunter = Math.abs(cell.x - hunter.x) + Math.abs(cell.y - hunter.y);
+    return fromRunner >= 6 && fromHunter >= 4;
+  });
+  const pool = candidates.length >= count
+    ? candidates
+    : getWalkableCells(maze).filter(cell =>
+        !(cell.x === runner.x && cell.y === runner.y) &&
+        !(cell.x === hunter.x && cell.y === hunter.y)
+      );
+
+  return shuffleCells(pool).slice(0, count).map(cell => ({
+    x: cell.x,
+    y: cell.y,
+    collected: false,
+  }));
+}
+
 function pushRunnerTrail(game) {
   game.runnerTrail.push({ x: game.players.runner.x, y: game.players.runner.y });
-  if (game.runnerTrail.length > PVP_TRAIL_MAX_POINTS) {
-    game.runnerTrail = game.runnerTrail.slice(-PVP_TRAIL_MAX_POINTS);
+}
+
+function isInTrapZone(trap, x, y) {
+  const radius = trap.radius ?? PVP_TRAP_RADIUS;
+  return Math.max(Math.abs(trap.x - x), Math.abs(trap.y - y)) <= radius;
+}
+
+function collectTreasureAt(game, x, y) {
+  const treasure = game.treasures.find(item => !item.collected && item.x === x && item.y === y);
+  if (!treasure) return false;
+
+  treasure.collected = true;
+  game.treasuresCollected = game.treasures.filter(item => item.collected).length;
+  game.chaseProgress = game.treasuresCollected;
+  if (game.treasuresCollected >= game.totalTreasures) {
+    return true;
   }
+  return false;
 }
 
 function finishGame(session, winner) {
@@ -198,10 +253,6 @@ function applyPvpBonus(session, role, bonusType) {
   const actor = game.players[role];
 
   switch (bonusType) {
-    case 'move1':
-      actor.movesLeft = Math.max(actor.movesLeft, 1);
-      actor.specialMove = null;
-      break;
     case 'move2':
       actor.movesLeft = Math.max(actor.movesLeft, 2);
       actor.specialMove = null;
@@ -215,6 +266,7 @@ function applyPvpBonus(session, role, bonusType) {
         x: actor.x,
         y: actor.y,
         stunTurns: PVP_TRAP_STUN_TURNS,
+        radius: PVP_TRAP_RADIUS,
       });
       break;
     case 'dash':
@@ -251,6 +303,7 @@ function stepPlayer(session, role, direction) {
   const steps = actor.specialMove ? actor.specialMove.distance : 1;
   let moved = 0;
   let trapTriggered = false;
+  let treasureCollected = false;
 
   for (let i = 0; i < steps; i++) {
     const nextX = actor.x + dir.x;
@@ -261,16 +314,24 @@ function stepPlayer(session, role, direction) {
     actor.y = nextY;
     moved++;
 
+    if (role === 'runner' && actor.x === opponent.x && actor.y === opponent.y) {
+      finishGame(session, 'hunter');
+      break;
+    }
+
     if (role === 'runner') {
       pushRunnerTrail(game);
+      if (collectTreasureAt(game, actor.x, actor.y)) {
+        treasureCollected = true;
+        finishGame(session, 'runner');
+      }
       if (game.effects.runnerCamouflageTurns > 0) {
         game.effects.runnerCamouflageTurns--;
       }
     } else {
-      const trapIdx = game.traps.findIndex(trap => trap.x === actor.x && trap.y === actor.y);
+      const trapIdx = game.traps.findIndex(trap => isInTrapZone(trap, actor.x, actor.y));
       if (trapIdx >= 0) {
         const trap = game.traps[trapIdx];
-        game.traps.splice(trapIdx, 1);
         actor.stunTurns = Math.max(actor.stunTurns, trap.stunTurns);
         actor.movesLeft = 0;
         actor.specialMove = null;
@@ -278,7 +339,7 @@ function stepPlayer(session, role, direction) {
       }
     }
 
-    if (actor.x === opponent.x && actor.y === opponent.y) {
+    if (role === 'hunter' && actor.x === opponent.x && actor.y === opponent.y) {
       finishGame(session, 'hunter');
       break;
     }
@@ -292,20 +353,23 @@ function stepPlayer(session, role, direction) {
     actor.movesLeft--;
   }
 
-  return { moved, trapTriggered };
+  return { moved, trapTriggered, treasureCollected };
 }
 
-function serializeGame(game) {
+function serializeGame(game, viewerRole) {
   if (!game) return null;
   return {
     status: game.status,
     winner: game.winner,
     maze: game.maze,
     players: game.players,
-    traps: game.traps,
+    traps: viewerRole === 'runner' ? game.traps : [],
     runnerTrail: game.runnerTrail,
     chaseProgress: game.chaseProgress,
     escapeTarget: game.escapeTarget,
+    treasures: game.treasures,
+    treasuresCollected: game.treasuresCollected,
+    totalTreasures: game.totalTreasures,
     effects: game.effects,
   };
 }
@@ -318,10 +382,11 @@ function hasActiveSubscriber(session, role) {
 }
 
 function serializeSession(session, viewerToken) {
+  const viewerRole = getPlayerRole(session, viewerToken);
   return {
     id: session.id,
     phase: session.phase,
-    viewerRole: getPlayerRole(session, viewerToken),
+    viewerRole,
     hostRole: getPlayerRole(session, session.hostToken),
     canStart: canStartSession(session),
     ready: session.ready,
@@ -342,7 +407,7 @@ function serializeSession(session, viewerToken) {
         : null,
     },
     setup: session.setup,
-    game: serializeGame(session.game),
+    game: serializeGame(session.game, viewerRole),
     serverNow: Date.now(),
   };
 }
@@ -676,6 +741,14 @@ app.post('/api/pvp/sessions/:sessionId/game/init', (req, res) => {
     return;
   }
 
+  const treasures = Array.isArray(payload?.treasures) && payload.treasures.length > 0
+    ? payload.treasures.slice(0, PVP_TREASURE_TARGET).map(treasure => ({
+        x: treasure.x,
+        y: treasure.y,
+        collected: false,
+      }))
+    : createRoundTreasures(maze, players, PVP_TREASURE_TARGET);
+
   session.game = {
     status: 'running',
     winner: null,
@@ -698,8 +771,11 @@ app.post('/api/pvp/sessions/:sessionId/game/init', (req, res) => {
     },
     traps: [],
     runnerTrail: [{ x: players.runner.x, y: players.runner.y }],
+    treasures,
+    treasuresCollected: 0,
+    totalTreasures: PVP_TREASURE_TARGET,
     chaseProgress: 0,
-    escapeTarget: payload?.escapeTarget || PVP_ESCAPE_TARGET,
+    escapeTarget: PVP_TREASURE_TARGET,
     effects: {
       runnerCamouflageTurns: 0,
       huntMapUntil: 0,
@@ -754,13 +830,6 @@ app.post('/api/pvp/sessions/:sessionId/game/answer', (req, res) => {
     return;
   }
 
-  if (role === 'runner') {
-    session.game.chaseProgress++;
-    if (session.game.chaseProgress >= session.game.escapeTarget) {
-      finishGame(session, 'runner');
-    }
-  }
-
   if (session.game.status !== 'finished') {
     applyPvpBonus(session, role, bonusType);
   }
@@ -801,6 +870,28 @@ app.post('/api/pvp/sessions/:sessionId/game/move', (req, res) => {
     result,
     session: serializeSession(session, playerToken),
   });
+});
+
+app.post('/api/pvp/sessions/:sessionId/game/restart', (req, res) => {
+  const session = getSessionOrRespond(req.params.sessionId, res);
+  if (!session) return;
+
+  const { playerToken } = req.body || {};
+  const role = getPlayerOrRespond(session, playerToken, res);
+  if (!role) return;
+  if (!session.game || session.game.status !== 'finished') {
+    res.status(409).json({ error: 'Round is not finished' });
+    return;
+  }
+
+  session.game = null;
+  session.phase = 'lobby';
+  session.ready.runner = false;
+  session.ready.hunter = false;
+  touchSession(session);
+  broadcastSession(session);
+
+  res.json({ session: serializeSession(session, playerToken) });
 });
 
 app.post('/api/generate-questions', async (req, res) => {
