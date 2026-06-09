@@ -1143,6 +1143,20 @@ class DungeonRenderer {
 
     const T = this.TILE_SIZE;
     traps.forEach((trap) => {
+      const radius = trap.radius ?? 2;
+      const zoneGeo = new THREE.CircleGeometry(T * (radius + 0.5), 36);
+      const zoneMat = new THREE.MeshBasicMaterial({
+        color: 0x66ccff,
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+      });
+      const zone = new THREE.Mesh(zoneGeo, zoneMat);
+      zone.position.set(trap.x * T, 0.025, trap.y * T);
+      zone.rotation.x = -Math.PI / 2;
+      this.scene.add(zone);
+      this.trapMeshes.push(zone);
+
       const geo = new THREE.TorusGeometry(T * 0.16, T * 0.04, 8, 18);
       const mat = new THREE.MeshStandardMaterial({
         color: 0x66ccff,
@@ -1181,6 +1195,39 @@ class DungeonRenderer {
       mesh.position.set(point.x * T, 0.04, point.y * T);
       this.scene.add(mesh);
       this.trailMeshes.push(mesh);
+
+      const next = points[index + 1];
+      if (!next || (next.x === point.x && next.y === point.y)) return;
+
+      const start = new THREE.Vector3(point.x * T, 0.07, point.y * T);
+      const end = new THREE.Vector3(next.x * T, 0.07, next.y * T);
+      const delta = end.clone().sub(start);
+      const length = delta.length();
+      if (length <= 0.001) return;
+
+      const segmentGeo = new THREE.CylinderGeometry(T * 0.035, T * 0.035, length, 8);
+      const segmentMat = new THREE.MeshBasicMaterial({
+        color: 0xff8844,
+        transparent: true,
+        opacity: Math.max(0.25, 0.8 - index * 0.025),
+      });
+      const segment = new THREE.Mesh(segmentGeo, segmentMat);
+      segment.position.copy(start.clone().lerp(end, 0.5));
+      segment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.clone().normalize());
+      this.scene.add(segment);
+      this.trailMeshes.push(segment);
+
+      const arrowGeo = new THREE.ConeGeometry(T * 0.11, T * 0.28, 12);
+      const arrowMat = new THREE.MeshBasicMaterial({
+        color: 0xffcc66,
+        transparent: true,
+        opacity: Math.max(0.25, 0.85 - index * 0.025),
+      });
+      const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+      arrow.position.copy(end.clone().sub(delta.clone().normalize().multiplyScalar(T * 0.18)));
+      arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.clone().normalize());
+      this.scene.add(arrow);
+      this.trailMeshes.push(arrow);
     });
   }
 

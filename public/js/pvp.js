@@ -102,6 +102,15 @@ class PvpSessionClient {
     return data;
   }
 
+  async restartGame() {
+    if (!this.isActive) return null;
+    const data = await this._post(`/api/pvp/sessions/${encodeURIComponent(this.sessionId)}/game/restart`, {
+      playerToken: this.playerToken,
+    });
+    this._applySession(data.session);
+    return data.session;
+  }
+
   _bindSession(data) {
     this._disconnectStream();
     this.sessionId = data.sessionId;

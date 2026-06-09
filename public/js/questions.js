@@ -39,24 +39,24 @@ const LEXICAL_TOPICS = [
 
 // Bonus slot definitions (fixed bonuses, player assigns grammar topics)
 const CLASSIC_BONUS_SLOTS = [
-  { id: 'wortstellung', bonus: 'move2', bonusLabel: '2 хода', name: 'Wortstellung', isWortstellung: true, fixed: true },
-  { id: 'slot2', bonus: 'move1', bonusLabel: '+1 ход', name: null },
+  { id: 'wortstellung', bonus: 'dash', bonusLabel: 'Рывок', name: 'Wortstellung', isWortstellung: true, fixed: true },
+  { id: 'slot2', bonus: 'move2', bonusLabel: '2 хода', name: null },
   { id: 'slot3', bonus: 'camouflage', bonusLabel: 'Маскировка', name: null },
   { id: 'slot4', bonus: 'bait', bonusLabel: 'Приманка', name: null },
   { id: 'slot5', bonus: 'reveal', bonusLabel: 'Показать монстра', name: null },
 ];
 
 const CHASE_RUNNER_BONUS_SLOTS = [
-  { id: 'wortstellung', bonus: 'move2', bonusLabel: '2 хода', name: 'Wortstellung', isWortstellung: true, fixed: true },
-  { id: 'slot2', bonus: 'move1', bonusLabel: '+1 ход', name: null },
+  { id: 'wortstellung', bonus: 'dash', bonusLabel: 'Рывок', name: 'Wortstellung', isWortstellung: true, fixed: true },
+  { id: 'slot2', bonus: 'move2', bonusLabel: '2 хода', name: null },
   { id: 'slot3', bonus: 'camouflage', bonusLabel: 'Маскировка', name: null },
   { id: 'slot4', bonus: 'trap', bonusLabel: 'Ловушка', name: null },
   { id: 'slot5', bonus: 'dash', bonusLabel: 'Рывок', name: null },
 ];
 
 const CHASE_HUNTER_BONUS_SLOTS = [
-  { id: 'wortstellung', bonus: 'move2', bonusLabel: '2 хода', name: 'Wortstellung', isWortstellung: true, fixed: true },
-  { id: 'slot2', bonus: 'move1', bonusLabel: '+1 ход', name: null },
+  { id: 'wortstellung', bonus: 'pounce', bonusLabel: 'Бросок', name: 'Wortstellung', isWortstellung: true, fixed: true },
+  { id: 'slot2', bonus: 'move2', bonusLabel: '2 хода', name: null },
   { id: 'slot3', bonus: 'hunt_map', bonusLabel: 'Охотничий обзор', name: null },
   { id: 'slot4', bonus: 'trail', bonusLabel: 'След', name: null },
   { id: 'slot5', bonus: 'pounce', bonusLabel: 'Бросок', name: null },
@@ -75,6 +75,7 @@ const BONUS_SLOTS = CLASSIC_BONUS_SLOTS;
 const CAMOUFLAGE_TURNS = 5;
 const CAMOUFLAGE_COOLDOWN_MS = 3 * 60 * 1000;
 const TRAP_STUN_TURNS = 3;
+const TRAP_RADIUS = 2;
 const HUNT_MAP_REVEAL_MS = 1500;
 const TRAIL_REVEAL_MS = 8000;
 

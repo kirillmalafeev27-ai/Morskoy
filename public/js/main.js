@@ -369,7 +369,7 @@ document.addEventListener('DOMContentLoaded', () => {
         runner: { x: 1, y: 1 },
         hunter: hunterSpawn,
       },
-      escapeTarget: 8,
+      treasureTarget: 3,
     };
   }
 
@@ -456,7 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
     game.init(settings);
   }
 
-  async function returnToMenu({ leavePvp = false } = {}) {
+  async function returnToMenu({ leavePvp = false, step = 1 } = {}) {
     game.destroy();
     game.restart();
     sessionGameStarted = false;
@@ -465,13 +465,48 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('win-screen').classList.remove('active');
     document.getElementById('lose-screen').classList.remove('active');
     document.getElementById('menu-screen').classList.add('active');
-    showStep(1);
+    showStep(step);
 
     if (leavePvp && pvp.isActive) {
       await pvp.leaveSession();
     }
 
     renderPvpStatus();
+  }
+
+  function restartSoloCurrentLevel() {
+    game.destroy();
+    document.getElementById('win-screen').classList.remove('active');
+    document.getElementById('lose-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+    game.init({
+      isCreepy: game.isCreepy,
+      monsterCount: game.monsterCountSetting,
+      difficulty: game.difficulty,
+      gameMode: game.gameMode,
+      matchType: game.matchType,
+      langLevel: game.langLevel,
+      playerName: game.playerName,
+      level: game.currentLevel,
+      lexicalTopic: game.lexicalTopic,
+      slotConfigs: game.slotConfigs,
+    });
+  }
+
+  async function restartPvpRound() {
+    if (!pvp.isActive) {
+      await returnToMenu({ leavePvp: true });
+      return;
+    }
+
+    try {
+      sessionGameStarted = false;
+      await pvp.restartGame();
+      await returnToMenu({ step: 4 });
+      renderPvpStatus('Раунд сброшен. Нажмите старт, когда будете готовы.');
+    } catch (err) {
+      renderPvpStatus(err.message);
+    }
   }
 
   document.getElementById('to-step2-btn').addEventListener('click', () => showStep(2));
@@ -567,6 +602,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     applySessionSetup(session);
     renderPvpStatus();
+
+    if ((session.phase === 'lobby' || session.phase === 'awaiting_init') && sessionGameStarted && game.isPvp) {
+      await returnToMenu({ step: 4 });
+      renderPvpStatus('Раунд сброшен. Нажмите старт, когда будете готовы.');
+      return;
+    }
 
     if (session.phase === 'awaiting_init' && session.hostRole === session.viewerRole && !session.game && !pvpInitInFlight) {
       pvpInitInFlight = true;
@@ -688,30 +729,24 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('win-next').addEventListener('click', () => game.nextLevel());
 
   document.getElementById('win-restart').addEventListener('click', () => {
+    if (game.isPvp) {
+      restartPvpRound();
+      return;
+    }
+    restartSoloCurrentLevel();
+  });
+
+  document.getElementById('win-menu').addEventListener('click', () => {
     returnToMenu({ leavePvp: game.isPvp });
   });
 
   document.getElementById('lose-restart').addEventListener('click', () => {
     if (game.isPvp) {
-      returnToMenu({ leavePvp: true });
+      restartPvpRound();
       return;
     }
 
-    game.destroy();
-    document.getElementById('lose-screen').classList.remove('active');
-    document.getElementById('game-screen').classList.add('active');
-    game.init({
-      isCreepy: game.isCreepy,
-      monsterCount: game.monsterCountSetting,
-      difficulty: game.difficulty,
-      gameMode: game.gameMode,
-      matchType: game.matchType,
-      langLevel: game.langLevel,
-      playerName: game.playerName,
-      level: game.currentLevel,
-      lexicalTopic: game.lexicalTopic,
-      slotConfigs: game.slotConfigs,
-    });
+    restartSoloCurrentLevel();
   });
 
   document.getElementById('lose-menu').addEventListener('click', () => {

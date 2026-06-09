@@ -218,8 +218,11 @@ class Game {
     const shuffledFar = this._shuffle([...farCells]);
 
     this.treasures = [];
-    this.totalTreasures = isChase ? 0 : levelCfg.treasures;
-    if (!isChase && !this.isPvp) {
+    this.totalTreasures = isChase ? 3 : levelCfg.treasures;
+    if (this.isPvp && Array.isArray(pvpGame?.treasures)) {
+      this.totalTreasures = pvpGame.totalTreasures || this.totalTreasures;
+      this.treasures = pvpGame.treasures.map(treasure => ({ ...treasure }));
+    } else if (!this.isPvp) {
       for (let i = 0; i < this.totalTreasures && i < shuffledFar.length; i++) {
         this.treasures.push({ x: shuffledFar[i].x, y: shuffledFar[i].y, collected: false });
       }
@@ -248,7 +251,7 @@ class Game {
       }
     }
 
-    this.treasuresCollected = 0;
+    this.treasuresCollected = this.treasures.filter(treasure => treasure.collected).length;
     this.movesLeft = 0;
     this.specialMove = null;
     this.questionsAnswered = 0;
@@ -401,9 +404,13 @@ class Game {
   _update() {
     this.renderer.updatePlayer(this.playerX, this.playerY);
     this.renderer.updateCamera(this.playerX, this.playerY);
+    if (this.state === 'direction_select') {
+      this._updateDirectionButtons();
+    }
 
     if (this.isPvp) {
       this._syncPvpVisuals();
+      this._updateTreasureVisibility();
       const other = this.remotePlayer;
       if (other && this.audio) {
         const dx = other.x - this.playerX;
@@ -420,15 +427,28 @@ class Game {
       this.renderer.updateMonster(index, monster.x, monster.y, isVisible, this.monsterRevealed);
     });
 
-    this.treasures.forEach((treasure, index) => {
-      const isVisible = this.renderer.isInVisibleRange(this.playerX, this.playerY, treasure.x, treasure.y);
-      this.renderer.updateTreasure(index, isVisible, treasure.collected);
-    });
+    this._updateTreasureVisibility();
 
     if (this.monsters.length > 0 && this.audio) {
       const closest = Math.min(...this.monsters.map(monster => monster.getDistanceToPlayer()));
       const proximity = Math.max(0, 1 - closest / 12);
       this.audio.updateMonsterProximity(proximity);
+    }
+  }
+
+  _updateTreasureVisibility() {
+    this.treasures.forEach((treasure, index) => {
+      const isVisible = this.renderer.isInVisibleRange(this.playerX, this.playerY, treasure.x, treasure.y);
+      this.renderer.updateTreasure(index, isVisible, treasure.collected);
+    });
+  }
+
+  _ensureTreasureMeshes() {
+    if (!this.renderer || !Array.isArray(this.treasures)) return;
+    const existing = this.renderer.treasureMeshes?.length || 0;
+    for (let i = existing; i < this.treasures.length; i++) {
+      const treasure = this.treasures[i];
+      this.renderer.createTreasure(treasure.x, treasure.y, i);
     }
   }
 
@@ -494,6 +514,13 @@ class Game {
     this.specialMove = local.specialMove || null;
     this.localStunTurns = local.stunTurns || 0;
     this.chaseProgress = game.chaseProgress || 0;
+    const previousTreasuresCollected = this.treasuresCollected;
+    this.totalTreasures = game.totalTreasures || this.totalTreasures || 3;
+    this.treasures = Array.isArray(game.treasures) ? game.treasures.map(treasure => ({ ...treasure })) : this.treasures;
+    this.treasuresCollected = typeof game.treasuresCollected === 'number'
+      ? game.treasuresCollected
+      : this.treasures.filter(treasure => treasure.collected).length;
+    this.chaseProgress = this.treasuresCollected;
     this.traps = Array.isArray(game.traps) ? game.traps.map(trap => ({ ...trap })) : [];
     this.runnerTrail = Array.isArray(game.runnerTrail) ? game.runnerTrail.map(point => ({ ...point })) : [];
     this.camouflageTurns = game.effects?.runnerCamouflageTurns || 0;
@@ -504,6 +531,14 @@ class Game {
     this._updateHUD();
     this._updateStatusEffects();
     this._syncPvpVisuals(true);
+    if (this.state !== 'loading') {
+      this._ensureTreasureMeshes();
+      this._updateTreasureVisibility();
+    }
+
+    if (this.treasuresCollected > previousTreasuresCollected && this.pvpRole === 'runner' && this.audio) {
+      this.audio.playTreasureCollect();
+    }
 
     if (game.status === 'finished' && !this._pvpEndHandled) {
       this._pvpEndHandled = true;
@@ -517,11 +552,9 @@ class Game {
 
   _onMonsterMove() {
     for (const monster of this.monsters) {
-      const trapIndex = this.traps.findIndex(trap => trap.x === monster.x && trap.y === monster.y);
+      const trapIndex = this.traps.findIndex(trap => this._isInTrapZone(trap, monster.x, monster.y));
       if (trapIndex >= 0) {
-        this.traps.splice(trapIndex, 1);
         monster.stun(TRAP_STUN_TURNS);
-        this.renderer.setTrapMarkers(this.traps, this.traps.length > 0);
       }
 
       if (monster.x === this.playerX && monster.y === this.playerY) {
@@ -529,6 +562,11 @@ class Game {
         return;
       }
     }
+  }
+
+  _isInTrapZone(trap, x, y) {
+    const radius = trap.radius ?? TRAP_RADIUS;
+    return Math.max(Math.abs(trap.x - x), Math.abs(trap.y - y)) <= radius;
   }
 
   selectTopic(slotId) {
@@ -631,15 +669,6 @@ class Game {
       this._showFeedback(true, correctAnswer);
       this.questionManager.onCorrectAnswer(this.currentSlotId);
 
-      if (this.gameMode === 'chase') {
-        this.chaseProgress++;
-        this._updateHUD();
-        if (this.chaseProgress >= this.chaseTarget) {
-          this._win();
-          return;
-        }
-      }
-
       setTimeout(() => {
         if (this.state === 'lost' || this.state === 'won') return;
         if (this._canMoveNow()) {
@@ -665,10 +694,6 @@ class Game {
 
   _applyBonus(bonusType) {
     switch (bonusType) {
-      case 'move1':
-        this.movesLeft = Math.max(this.movesLeft, 1);
-        this.specialMove = null;
-        break;
       case 'move2':
         this.movesLeft = Math.max(this.movesLeft, 2);
         this.specialMove = null;
@@ -737,18 +762,35 @@ class Game {
 
   _placeTrap() {
     this.traps = this.traps.filter(trap => !(trap.x === this.playerX && trap.y === this.playerY));
-    this.traps.push({ x: this.playerX, y: this.playerY, stunTurns: TRAP_STUN_TURNS });
+    this.traps.push({ x: this.playerX, y: this.playerY, stunTurns: TRAP_STUN_TURNS, radius: TRAP_RADIUS });
     this.renderer.setTrapMarkers(this.traps, true);
     this._updateStatusEffects();
   }
 
   async movePlayer(direction) {
     if (this.state !== 'direction_select') return;
+    const worldDirection = this._cameraRelativeDirection(direction);
     if (this.isPvp) {
-      await this._movePlayerPvp(direction);
+      await this._movePlayerPvp(worldDirection);
       return;
     }
-    this._movePlayerSolo(direction);
+    this._movePlayerSolo(worldDirection);
+  }
+
+  _cameraRelativeDirection(direction) {
+    const angle = this.renderer?.cameraAngle || 0;
+    const vectors = {
+      up: { x: -Math.sin(angle), y: -Math.cos(angle) },
+      down: { x: Math.sin(angle), y: Math.cos(angle) },
+      left: { x: -Math.cos(angle), y: Math.sin(angle) },
+      right: { x: Math.cos(angle), y: -Math.sin(angle) },
+    };
+    const vector = vectors[direction];
+    if (!vector) return direction;
+    if (Math.abs(vector.x) > Math.abs(vector.y)) {
+      return vector.x > 0 ? 'right' : 'left';
+    }
+    return vector.y > 0 ? 'down' : 'up';
   }
 
   async _movePlayerPvp(direction) {
@@ -763,7 +805,9 @@ class Game {
       return;
     }
 
-    this.audio.playStep();
+    if (result.result?.moved > 0) {
+      this.audio.playStep();
+    }
     if (this.state === 'lost' || this.state === 'won') return;
 
     if (this._canMoveNow()) {
@@ -833,6 +877,7 @@ class Game {
       this.playerX = nx;
       this.playerY = ny;
       moved++;
+      this._checkTreasures();
     }
 
     return moved;
@@ -843,6 +888,7 @@ class Game {
       if (!treasure.collected && treasure.x === this.playerX && treasure.y === this.playerY) {
         treasure.collected = true;
         this.treasuresCollected++;
+        this.chaseProgress = this.treasuresCollected;
         this.audio.playTreasureCollect();
         this._updateHUD();
       }
@@ -869,13 +915,8 @@ class Game {
     const roleEl = document.getElementById('pvp-role-indicator');
     const winNextBtn = document.getElementById('win-next');
 
-    if (this.gameMode === 'chase') {
-      treasureEl.classList.add('hidden');
-      chaseEl.classList.remove('hidden');
-    } else {
-      treasureEl.classList.remove('hidden');
-      chaseEl.classList.add('hidden');
-    }
+    treasureEl.classList.remove('hidden');
+    chaseEl.classList.add('hidden');
 
     if (this.isPvp) {
       roleEl.classList.remove('hidden');
@@ -1028,7 +1069,8 @@ class Game {
     };
 
     document.querySelectorAll('.dir-btn').forEach(btn => {
-      const dir = dirs[btn.dataset.dir];
+      const worldDirection = this._cameraRelativeDirection(btn.dataset.dir);
+      const dir = dirs[worldDirection];
       const nx = this.playerX + dir.x;
       const ny = this.playerY + dir.y;
       btn.disabled = !(nx >= 0 && nx < this.mazeGen.width &&
@@ -1062,11 +1104,11 @@ class Game {
 
     if (this.camouflageTurns > 0) addBadge(`Маскировка ${this.camouflageTurns}`);
     if (this.revealTurns > 0) addBadge(`Монстр виден ${this.revealTurns}`);
-    if (this.traps.length > 0 && !this.isPvp) addBadge(`Ловушки ${this.traps.length}`);
+    if (this.traps.length > 0 && (!this.isPvp || this.pvpRole === 'runner')) addBadge(`Ловушки ${this.traps.length}`);
     if (this.specialMove) addBadge(this.specialMove.type === 'pounce' ? 'Бросок готов' : 'Рывок готов');
     if (this.localStunTurns > 0) addBadge(`Оглушение ${this.localStunTurns}`);
     if (this.isPvp && Date.now() < this.huntMapUntil) addBadge('Вся карта открыта');
-    if (this.isPvp && Date.now() < this.trailRevealUntil) addBadge('След бегуна виден');
+    if (this.isPvp && this.pvpRole === 'hunter' && Date.now() < this.trailRevealUntil) addBadge('След бегуна виден');
 
     const cooldownLeft = this.camouflageCooldownUntil - Date.now();
     if (this.camouflageTurns <= 0 && cooldownLeft > 0) {
@@ -1082,7 +1124,7 @@ class Game {
     const accuracy = this.questionsAnswered > 0
       ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100)
       : 0;
-    const scoreValue = this.gameMode === 'chase' ? this.chaseProgress : this.treasuresCollected;
+    const scoreValue = this.treasuresCollected;
     this.leaderboard.addScore({
       name: this.playerName,
       level: this.currentLevel,
@@ -1099,9 +1141,7 @@ class Game {
       this.renderer.stopLoop();
       document.getElementById('game-screen').classList.remove('active');
       document.getElementById('lose-screen').classList.add('active');
-      const progress = this.gameMode === 'chase'
-        ? `Побег: ${this.chaseProgress}/${this.chaseTarget}`
-        : `Сокровища: ${this.treasuresCollected}/${this.totalTreasures}`;
+      const progress = `Сокровища: ${this.treasuresCollected}/${this.totalTreasures}`;
       document.getElementById('lose-stats').textContent =
         `Уровень: ${this.currentLevel} | Вопросов: ${this.questionsAnswered} | Правильных: ${this.questionsCorrect} | ${progress}`;
     };
@@ -1128,7 +1168,7 @@ class Game {
     const accuracy = this.questionsAnswered > 0
       ? Math.round((this.questionsCorrect / this.questionsAnswered) * 100)
       : 0;
-    const scoreValue = this.gameMode === 'chase' ? this.chaseProgress : this.treasuresCollected;
+    const scoreValue = this.treasuresCollected;
     this.leaderboard.addScore({
       name: this.playerName,
       level: this.currentLevel,
@@ -1142,9 +1182,9 @@ class Game {
       document.getElementById('win-screen').classList.add('active');
       let modeNote = '';
       if (this.gameMode === 'chase' && this.isPvp) {
-        modeNote = this.pvpRole === 'runner' ? ' | Бегун ушёл от хищника!' : ' | Хищник поймал добычу!';
+        modeNote = this.pvpRole === 'runner' ? ' | Бегун собрал все сокровища!' : ' | Хищник поймал добычу!';
       } else if (this.gameMode === 'chase') {
-        modeNote = ' | Побег удался!';
+        modeNote = ' | Все сокровища собраны!';
       }
       document.getElementById('win-stats').textContent =
         `Уровень ${this.currentLevel} пройден!${modeNote} | Точность: ${accuracy}%`;
