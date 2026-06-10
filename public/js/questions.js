@@ -5,7 +5,7 @@
 const GRAMMAR_TOPICS = [
   // Verben
   'Präsens', 'Perfekt', 'Präteritum', 'Futur I', 'Imperativ',
-  'Modalverben', 'Trennbare Verben', 'Reflexive Verben',
+  'Modalverben', 'Modalverben in Präteritum', 'Trennbare Verben', 'Reflexive Verben',
   'Verben mit Präpositionen', 'Lassen',
   // Nomen & Artikel
   'Artikel', 'Nominativ', 'Akkusativ', 'Dativ', 'Genitiv',
@@ -30,7 +30,7 @@ const GRAMMAR_TOPICS = [
 
 // Lexical topics (Wortschatz)
 const LEXICAL_TOPICS = [
-  'Begrüßung', 'Familie', 'Schule', 'Essen und Trinken',
+  'Begrüßung', 'Familie', 'Kindheit', 'Schule', 'Essen und Trinken',
   'Tagesablauf', 'Wetter', 'Stadt', 'Hobbys und Freizeit',
   'Reisen und Urlaub', 'Einkaufen', 'Natur und Umwelt', 'Wohnen',
   'Kleidung', 'Körper und Gesundheit', 'Berufe', 'Verkehrsmittel',

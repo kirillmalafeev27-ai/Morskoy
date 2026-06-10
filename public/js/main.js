@@ -124,10 +124,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // If a grammar topic is selected, assign it to this slot
       if (selectedGrammar) {
-        // Remove grammar from any other slot it was in
-        for (let i = 0; i < 5; i++) {
-          if (slotAssignments[i] === selectedGrammar) slotAssignments[i] = null;
-        }
         slotAssignments[idx] = selectedGrammar;
         selectedGrammar = null;
         selectedSlotIdx = null;
@@ -155,24 +151,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const picker = document.getElementById('grammar-picker');
     picker.innerHTML = '';
 
-    const usedTopics = slotAssignments.filter(Boolean);
-
     GRAMMAR_TOPICS.forEach(topic => {
       const tag = document.createElement('button');
       tag.className = 'grammar-tag';
       tag.textContent = topic;
-
-      if (usedTopics.includes(topic)) {
-        tag.classList.add('used');
-      }
 
       if (selectedGrammar === topic) {
         tag.classList.add('selected-grammar');
       }
 
       tag.addEventListener('click', () => {
-        if (usedTopics.includes(topic)) return;
-
         if (selectedGrammar === topic) {
           selectedGrammar = null;
         } else {
@@ -181,9 +169,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // If a slot is selected, auto-assign
         if (selectedGrammar && selectedSlotIdx !== null) {
-          for (let i = 0; i < 5; i++) {
-            if (slotAssignments[i] === selectedGrammar) slotAssignments[i] = null;
-          }
           slotAssignments[selectedSlotIdx] = selectedGrammar;
           selectedGrammar = null;
           selectedSlotIdx = null;
