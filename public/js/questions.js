@@ -4,7 +4,7 @@
 // Grammar topics list
 const GRAMMAR_TOPICS = [
   // Verben
-  'Präsens', 'Perfekt', 'Präteritum', 'Futur I', 'Imperativ',
+  'Präsens', 'Verben mit Vokalwechsel', 'Perfekt', 'Präteritum', 'Futur I', 'Imperativ',
   'Modalverben', 'Modalverben in Präteritum', 'Trennbare Verben', 'Reflexive Verben',
   'Verben mit Präpositionen', 'Lassen',
   // Nomen & Artikel
