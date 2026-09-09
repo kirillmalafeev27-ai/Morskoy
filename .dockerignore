@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+.DS_Store
+
+# Quellassets, die zur Laufzeit niemand braucht — im Spiel werden die
+# konvertierten .glb-Dateien geladen.
+public/LowPolyDungeon_FBX.zip
+
+# Tests gehören nicht ins Laufzeit-Image.
+test

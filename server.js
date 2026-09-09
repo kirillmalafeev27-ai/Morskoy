@@ -16,6 +16,8 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Morskoy Dungeon running on http://localhost:${PORT}`);
+// Ausdrücklich an alle Interfaces binden: Im Container erreicht der
+// Healthcheck der Plattform sonst nur den Loopback.
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Morskoy Dungeon running on port ${PORT}`);
 });

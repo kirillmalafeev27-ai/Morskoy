@@ -2,12 +2,15 @@ services:
   - type: web
     name: morskoy-dungeon
     runtime: node
-    buildCommand: npm install
+    buildCommand: npm ci --omit=dev
     startCommand: node server.js
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
-      - key: ANTHROPIC_API_KEY
-        sync: false
+      # Ключ генерации упражнений. Без него /api/generate-questions отдаёт 503.
       - key: AITUNNEL_API_KEY
+        sync: false
+      # Необязательное: озвучка немецких фраз в аудиорежиме.
+      - key: ELEVENLABS_API_KEY
         sync: false
