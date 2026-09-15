@@ -9,7 +9,8 @@ const GRAMMAR_TOPICS = [
   'Verben mit Präpositionen', 'Lassen',
   // Nomen & Artikel
   'Artikel', 'Nominativ', 'Akkusativ', 'Dativ', 'Genitiv',
-  'N-Deklination', 'Pronomen', 'Pronominaladverbien',
+  'N-Deklination', 'Pronomen',
+  'Pronomen in Akkusativ', 'Pronomen in Dativ', 'Pronominaladverbien',
   'Possessivpronomen in verschiedenen Kasus',
   // Adjektive
   'Adjektivdeklination', 'Steigerung',
